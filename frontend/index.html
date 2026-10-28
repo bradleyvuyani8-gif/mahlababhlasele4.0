@@ -44,6 +44,7 @@
         
         .alert-box { margin-top: 8px; padding: 8px; border-radius: 6px; font-size: 0.75rem; display: none; text-align: center; }
         .alert-success { background: rgba(16, 185, 129, 0.2); color: var(--accent-green); border: 1px solid var(--accent-green); }
+        .alert-error { background: rgba(239, 68, 68, 0.2); color: var(--accent-red); border: 1px solid var(--accent-red); }
         
         .log-container { background: #07090f; border: 1px solid var(--border-color); border-radius: 6px; padding: 10px; height: 160px; overflow-y: auto; font-family: monospace; font-size: 0.75rem; color: #94a3b8; }
         .log-item { margin-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 3px; }
@@ -56,7 +57,7 @@
 
     <div class="header">
         <h1>MAHLABAHLASELE 4.0</h1>
-        <div id="systemStatus" class="status-badge">CONNECTING...</div>
+        <div id="systemStatus" class="status-badge">AWAITING KEYS</div>
     </div>
 
     <div class="grid">
@@ -80,17 +81,18 @@
                 <input type="password" id="secretKey" placeholder="Enter Secret Key">
             </div>
             <button class="btn-primary" onclick="saveConfig()">Save & Authorize Keys</button>
-            <div id="configAlert" class="alert-box alert-success">API Keys authorized successfully!</div>
+            <div id="configAlert" class="alert-box alert-success">API connection established successfully!</div>
+            <div id="configError" class="alert-box alert-error">Connection failed. Verify API credentials.</div>
         </div>
 
         <!-- 2. BOT STATUS & METRICS -->
         <div class="card">
             <h2>BOT CONTROL PANEL</h2>
-            <div class="metric-row"><span>Engine State:</span> <span id="botStateText" class="metric-value">INACTIVE</span></div>
+            <div class="metric-row"><span>Engine State:</span> <span id="botStateText" class="metric-value">DISCONNECTED</span></div>
             <div class="metric-row"><span>Active Exchange:</span> <span id="activeExchange" class="metric-value">Binance</span></div>
-            <div class="metric-row"><span>Live Account Balance:</span> <span id="accountBalance" class="metric-value">$15,450.00</span></div>
-            <div class="metric-row"><span>Open Positions:</span> <span id="openPositionsCount" class="metric-value">0</span></div>
-            <div class="metric-row"><span>Active Trades PnL:</span> <span id="activePnl" class="metric-value" style="color: var(--accent-green);">+$0.00</span></div>
+            <div class="metric-row"><span>Live Account Balance:</span> <span id="accountBalance" class="metric-value">...</span></div>
+            <div class="metric-row"><span>Open Positions:</span> <span id="openPositionsCount" class="metric-value">...</span></div>
+            <div class="metric-row"><span>Active Trades PnL:</span> <span id="activePnl" class="metric-value" style="color: var(--text-muted);">...</span></div>
         </div>
 
         <!-- 3. RISK MANAGEMENT & MANUAL CONTROLS -->
@@ -121,25 +123,25 @@
             <h2>MARKET VIEW (BTC/USDT)</h2>
             <div class="metric-row"><span>Pair:</span> <span class="metric-value">BTC/USDT 1H</span></div>
             <div class="metric-row"><span>Current Price:</span> <span id="livePrice" class="metric-value">Fetching...</span></div>
-            <div class="metric-row"><span>AI Strategy Signal:</span> <span id="aiSignal" class="metric-value">Bullish Momentum</span></div>
-            <div class="metric-row"><span>Telemetry Status:</span> <span class="metric-value" style="color: var(--accent-green);">Connected</span></div>
+            <div class="metric-row"><span>AI Strategy Signal:</span> <span id="aiSignal" class="metric-value">Awaiting Connection</span></div>
+            <div class="metric-row"><span>Telemetry Status:</span> <span id="telemetryStatus" class="metric-value" style="color: var(--accent-red);">Unauthenticated</span></div>
         </div>
 
         <!-- 5. LIVE ACTIVITY LOG STREAM (FULL WIDTH) -->
         <div class="card full-width">
             <h2>LIVE ENGINE ACTIVITY LOG</h2>
             <div id="logContainer" class="log-container">
-                <div class="log-item"><span class="log-time">[--:--:--]</span> Connecting to backend telemetry stream...</div>
+                <div class="log-item"><span class="log-time">[--:--:--]</span> System locked. Waiting for verified API keys...</div>
             </div>
         </div>
 
         <!-- 6. AUTOMATED AI TRADING CONTROL (FULL WIDTH) -->
-        <div class="card full-width" style="border: 1px solid var(--accent-green);">
+        <div class="card full-width" style="border: 1px solid var(--border-color);" id="engineCard">
             <h2>AI AUTOMATED TRADING ENGINE</h2>
             <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px;">
-                Bot takes full control of execution, risk management, stop losses, and take profits automatically based on core learning scripts.
+                Bot requires successful API key authentication before automated execution can be unlocked.
             </p>
-            <button id="toggleBtn" class="btn-success" onclick="toggleBot()">ACTIVATE AUTOMATED TRADING</button>
+            <button id="toggleBtn" class="btn-danger" onclick="toggleBot()" disabled style="opacity: 0.5; cursor: not-allowed;">API KEYS REQUIRED TO ACTIVATE</button>
         </div>
     </div>
 
@@ -149,22 +151,42 @@
                 let res = await fetch('/api/status');
                 let data = await res.json();
                 
-                document.getElementById('systemStatus').innerText = data.active ? 'ONLINE & ACTIVE' : 'ONLINE (IDLE)';
-                document.getElementById('botStateText').innerText = data.active ? 'ACTIVE' : 'INACTIVE';
-                document.getElementById('botStateText').style.color = data.active ? '#10b981' : '#ef4444';
+                document.getElementById('systemStatus').innerText = data.has_keys ? (data.active ? 'ONLINE & ACTIVE' : 'CONNECTED (READY)') : 'AWAITING KEYS';
+                document.getElementById('botStateText').innerText = data.active ? 'ACTIVE' : (data.has_keys ? 'READY (IDLE)' : 'DISCONNECTED');
+                document.getElementById('botStateText').style.color = data.active ? '#10b981' : (data.has_keys ? '#3b82f6' : '#ef4444');
                 document.getElementById('activeExchange').innerText = data.exchange.toUpperCase();
-                document.getElementById('accountBalance').innerText = "$" + parseFloat(data.balance).toLocaleString(undefined, {minimumFractionDigits: 2});
+                
+                // Render live metrics or dots (...) if unauthenticated
+                document.getElementById('accountBalance').innerText = data.balance;
                 document.getElementById('openPositionsCount').innerText = data.positions_count;
                 document.getElementById('activePnl').innerText = data.pnl;
-                document.getElementById('activePnl').style.color = data.pnl.startsWith("+") ? '#10b981' : '#ef4444';
-                
+                document.getElementById('activePnl').style.color = data.pnl === '...' ? '#9ca3af' : '#10b981';
+                document.getElementById('telemetryStatus').innerText = data.has_keys ? 'Connected' : 'Unauthenticated';
+                document.getElementById('telemetryStatus').style.color = data.has_keys ? '#10b981' : '#ef4444';
+
                 let toggleBtn = document.getElementById('toggleBtn');
-                if (data.active) {
-                    toggleBtn.innerText = "DEACTIVATE AUTOMATED TRADING";
+                let engineCard = document.getElementById('engineCard');
+
+                if (!data.has_keys) {
+                    toggleBtn.disabled = true;
+                    toggleBtn.style.opacity = "0.5";
+                    toggleBtn.style.cursor = "not-allowed";
+                    toggleBtn.innerText = "API KEYS REQUIRED TO ACTIVATE";
                     toggleBtn.className = "btn-danger";
+                    engineCard.style.borderColor = "var(--border-color)";
                 } else {
-                    toggleBtn.innerText = "ACTIVATE AUTOMATED TRADING";
-                    toggleBtn.className = "btn-success";
+                    toggleBtn.disabled = false;
+                    toggleBtn.style.opacity = "1";
+                    toggleBtn.style.cursor = "pointer";
+                    engineCard.style.borderColor = "var(--accent-green)";
+                    
+                    if (data.active) {
+                        toggleBtn.innerText = "DEACTIVATE AUTOMATED TRADING";
+                        toggleBtn.className = "btn-danger";
+                    } else {
+                        toggleBtn.innerText = "ACTIVATE AUTOMATED TRADING";
+                        toggleBtn.className = "btn-success";
+                    }
                 }
 
                 if (data.settings) {
@@ -214,22 +236,31 @@
                     body: JSON.stringify(payload)
                 });
                 let data = await res.json();
-                if(data.status === 'success') {
+                if(res.ok && data.status === 'success') {
                     let alertBox = document.getElementById('configAlert');
                     alertBox.style.display = 'block';
+                    document.getElementById('configError').style.display = 'none';
                     setTimeout(() => alertBox.style.display = 'none', 3000);
                     fetchStatus();
                     fetchLogs();
+                } else {
+                    throw new Error(data.detail || "Authorization failed");
                 }
             } catch(e) {
-                alert("Error saving API keys.");
+                let errBox = document.getElementById('configError');
+                errBox.style.display = 'block';
+                setTimeout(() => errBox.style.display = 'none', 3000);
             }
         }
 
         async function toggleBot() {
             try {
                 let res = await fetch('/api/bot/toggle', { method: 'POST' });
-                let data = await res.json();
+                if (!res.ok) {
+                    let errData = await res.json();
+                    alert(errData.detail || "Activation rejected. Verify API connections.");
+                    return;
+                }
                 fetchStatus();
                 fetchLogs();
             } catch(e) {
