@@ -45,6 +45,10 @@
         .alert-box { margin-top: 8px; padding: 8px; border-radius: 6px; font-size: 0.75rem; display: none; text-align: center; }
         .alert-success { background: rgba(16, 185, 129, 0.2); color: var(--accent-green); border: 1px solid var(--accent-green); }
         
+        .log-container { background: #07090f; border: 1px solid var(--border-color); border-radius: 6px; padding: 10px; height: 160px; overflow-y: auto; font-family: monospace; font-size: 0.75rem; color: #94a3b8; }
+        .log-item { margin-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 3px; }
+        .log-time { color: var(--neon-blue); margin-right: 6px; }
+
         .full-width { grid-column: 1 / -1; }
     </style>
 </head>
@@ -121,7 +125,15 @@
             <div class="metric-row"><span>Telemetry Status:</span> <span class="metric-value" style="color: var(--accent-green);">Connected</span></div>
         </div>
 
-        <!-- 5. AUTOMATED AI TRADING CONTROL (FULL WIDTH) -->
+        <!-- 5. LIVE ACTIVITY LOG STREAM (FULL WIDTH) -->
+        <div class="card full-width">
+            <h2>LIVE ENGINE ACTIVITY LOG</h2>
+            <div id="logContainer" class="log-container">
+                <div class="log-item"><span class="log-time">[--:--:--]</span> Connecting to backend telemetry stream...</div>
+            </div>
+        </div>
+
+        <!-- 6. AUTOMATED AI TRADING CONTROL (FULL WIDTH) -->
         <div class="card full-width" style="border: 1px solid var(--accent-green);">
             <h2>AI AUTOMATED TRADING ENGINE</h2>
             <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px;">
@@ -158,9 +170,21 @@
                     document.getElementById('riskPct').value = data.settings.risk_pct;
                 }
             } catch (e) {
-                console.error("Backend connection error:", e);
                 document.getElementById('systemStatus').innerText = "DISCONNECTED";
             }
+        }
+
+        async function fetchLogs() {
+            try {
+                let res = await fetch('/api/logs');
+                let data = await res.json();
+                let container = document.getElementById('logContainer');
+                if (data.logs && data.logs.length > 0) {
+                    container.innerHTML = data.logs.map(log => 
+                        `<div class="log-item"><span class="log-time">[${log.time}]</span> [${log.level}] ${log.message}</div>`
+                    ).join('');
+                }
+            } catch(e) {}
         }
 
         async function fetchMarket() {
@@ -192,6 +216,7 @@
                     alertBox.style.display = 'block';
                     setTimeout(() => alertBox.style.display = 'none', 3000);
                     fetchStatus();
+                    fetchLogs();
                 }
             } catch(e) {
                 alert("Error saving API keys.");
@@ -203,6 +228,7 @@
                 let res = await fetch('/api/bot/toggle', { method: 'POST' });
                 let data = await res.json();
                 fetchStatus();
+                fetchLogs();
             } catch(e) {
                 alert("Error toggling automated trading engine.");
             }
@@ -227,6 +253,7 @@
                     let alertBox = document.getElementById('settingsAlert');
                     alertBox.style.display = 'block';
                     setTimeout(() => alertBox.style.display = 'none', 3000);
+                    fetchLogs();
                 }
             } catch(e) {
                 alert("Error updating risk parameters.");
@@ -234,9 +261,11 @@
         }
 
         setInterval(fetchStatus, 2000);
+        setInterval(fetchLogs, 1500);
         setInterval(fetchMarket, 3000);
 
         fetchStatus();
+        fetchLogs();
         fetchMarket();
     </script>
 </body>
