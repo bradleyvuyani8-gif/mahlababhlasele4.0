@@ -83,12 +83,10 @@ class SettingsPayload(BaseModel):
     stop_loss: float
     take_profit: float
 
-# Smart Detection HMAC REST Fetcher for Broker API Independence
+# Pure Broker Telemetry Fetcher (HMAC Signed REST - Zero Simulated Fluctuation)
 def fetch_broker_account_data(api_key: str, secret_key: str, exchange: str):
     try:
-        # Automatically route to Testnet if using demo keys or explicit testnet selection
-        key_sample = api_key.lower()
-        if "testnet" in exchange.lower() or "demo" in exchange.lower() or len(key_sample) < 40:
+        if "testnet" in exchange.lower() or "demo" in exchange.lower():
             base_url = "https://testnet.binance.vision"
         else:
             base_url = "https://api.binance.com"
@@ -109,10 +107,10 @@ def fetch_broker_account_data(api_key: str, secret_key: str, exchange: str):
         if res.status_code == 200:
             data = res.json()
             balances = data.get("balances", [])
-            total_usdt = 10000.00
+            actual_usdt = 0.0
             for b in balances:
                 if b["asset"] in ["USDT", "BUSD"]:
-                    total_usdt = float(b["free"]) + float(b["locked"])
+                    actual_usdt = float(b["free"]) + float(b["locked"])
                     break
             
             timestamp_o = int(time.time() * 1000)
@@ -127,12 +125,11 @@ def fetch_broker_account_data(api_key: str, secret_key: str, exchange: str):
             open_orders = orders_res.json() if orders_res.status_code == 200 else []
             positions_count = len(open_orders) if isinstance(open_orders, list) else 0
             
-            return True, total_usdt, positions_count
+            return True, actual_usdt, positions_count
         else:
-            # Silently fallback to prevent blocking bot startup
-            return True, BOT_STATE["initial_balance"] if BOT_STATE["is_connected"] else 15450.00, 0
+            return False, 0.0, 0
     except Exception as e:
-        return True, BOT_STATE["initial_balance"] if BOT_STATE["is_connected"] else 15450.00, 0
+        return False, 0.0, 0
 
 @app.get("/")
 def read_root():
@@ -167,7 +164,8 @@ def get_bot_status():
         BOT_STATE["exchange"]
     )
     
-    BOT_STATE["current_balance"] = current_balance
+    if success:
+        BOT_STATE["current_balance"] = current_balance
 
     calculated_pnl = BOT_STATE["current_balance"] - BOT_STATE["initial_balance"]
     pnl_str = f"+${calculated_pnl:,.2f}" if calculated_pnl >= 0 else f"-${abs(calculated_pnl):,.2f}"
@@ -199,15 +197,20 @@ def save_api_keys(payload: ApiKeysPayload):
     
     success, balance, _ = fetch_broker_account_data(payload.api_key, payload.secret_key, payload.exchange)
     
-    BOT_STATE["api_key"] = payload.api_key
-    BOT_STATE["secret_key"] = payload.secret_key
-    BOT_STATE["exchange"] = payload.exchange
-    BOT_STATE["is_connected"] = True
-    BOT_STATE["initial_balance"] = balance
-    BOT_STATE["current_balance"] = balance
-    
-    add_log(f"API keys authorized successfully. Initial Balance recorded: ${balance:,.2f}", "SUCCESS")
-    return {"status": "success", "message": "API keys connected and verified."}
+    if success:
+        BOT_STATE["api_key"] = payload.api_key
+        BOT_STATE["secret_key"] = payload.secret_key
+        BOT_STATE["exchange"] = payload.exchange
+        BOT_STATE["is_connected"] = True
+        BOT_STATE["initial_balance"] = balance
+        BOT_STATE["current_balance"] = balance
+        
+        add_log(f"API keys authorized successfully. Initial Balance recorded: ${balance:,.2f}", "SUCCESS")
+        return {"status": "success", "message": "API keys connected and verified."}
+    else:
+        BOT_STATE["is_connected"] = False
+        add_log("API connection failed. Verify keys and permissions.", "ERROR")
+        raise HTTPException(status_code=400, detail="Failed to connect to broker API.")
 
 @app.post("/api/bot/toggle")
 def toggle_auto_trading():
@@ -261,7 +264,6 @@ def get_positions():
     }
 
 def evaluate_ai_strategy(current_price: float):
-    # Pure analysis without overwriting the actual broker balance
     prev_price = PRICE_HISTORY[-2] if len(PRICE_HISTORY) > 1 else current_price
     momentum_delta = current_price - prev_price
     add_log(f"AI Reasoning: Momentum Delta = {momentum_delta:+.2f} | Live Balance: ${BOT_STATE['current_balance']:,.2f}", "INFO")
@@ -270,6 +272,11 @@ async def background_trading_engine():
     while True:
         await asyncio.sleep(15)
         if BOT_STATE["is_active"] and BOT_STATE["is_connected"]:
+            # Real-time telemetry update without fake fluctuation injection
+            success, current_bal, _ = fetch_broker_account_data(BOT_STATE["api_key"], BOT_STATE["secret_key"], BOT_STATE["exchange"])
+            if success:
+                BOT_STATE["current_balance"] = current_bal
+                
             import random
             fluctuation = round(random.uniform(-10.0, 15.0), 2)
             new_price = PRICE_HISTORY[-1] + fluctuation
@@ -280,5 +287,5 @@ async def background_trading_engine():
 
 @app.on_event("startup")
 async def startup_event():
-    add_log("Mahlabahlasele 4.0 Backend Engine ready with Smart Detection Broker Telemetry.")
+    add_log("Mahlabahlasele 4.0 Backend Engine ready with Pure Broker Telemetry.")
     asyncio.create_task(background_trading_engine())
