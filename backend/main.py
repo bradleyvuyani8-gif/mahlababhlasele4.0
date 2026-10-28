@@ -53,7 +53,7 @@ async def startup():
 
         while True:
 
-            snapshot = await get_market_snapshot()
+            snapshot = get_market_snapshot()
 
             store_snapshot(snapshot)
 
