@@ -13,7 +13,6 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-# Silence default HTTP access request logs in Uvicorn to keep terminal clean
 logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
 app = FastAPI(
@@ -41,8 +40,8 @@ BOT_STATE = {
     "api_key": "",
     "secret_key": "",
     "is_connected": False,
-    "initial_balance": 10000.00,
-    "current_balance": 10000.00,
+    "initial_balance": 0.0,
+    "current_balance": 0.0,
     "active_endpoint": ""
 }
 
@@ -84,12 +83,11 @@ class SettingsPayload(BaseModel):
     stop_loss: float
     take_profit: float
 
-# Robust Multi-Broker Telemetry Adapter with Detailed Diagnostic Logging
+# Strict Broker Telemetry Adapter: No fake defaults. Real data or total rejection.
 def query_broker_telemetry(api_key: str, secret_key: str, exchange: str):
     exchange_norm = exchange.lower().strip()
     
     try:
-        # Binance & Binance Demo/Testnet Adapter
         if "binance" in exchange_norm:
             endpoints = ["https://testnet.binance.vision", "https://api.binance.com"]
             for base_url in endpoints:
@@ -115,19 +113,14 @@ def query_broker_telemetry(api_key: str, secret_key: str, exchange: str):
                             if b["asset"] in ["USDT", "BUSD", "USDC"]:
                                 total_usdt += float(b["free"]) + float(b["locked"])
                         
-                        # Fallback default if wallet balance returns zero on fresh testnet accounts
-                        if total_usdt <= 0:
-                            total_usdt = 10000.00
-                            
                         BOT_STATE["active_endpoint"] = base_url
                         return True, total_usdt, 0
                     else:
-                        print(f"[DEBUG] Binance endpoint {base_url} returned status {res.status_code}: {res.text}")
+                        print(f"[DEBUG] Binance endpoint {base_url} rejected credentials: {res.status_code} - {res.text}")
                 except Exception as ex:
-                    print(f"[DEBUG] Binance endpoint {base_url} connection error: {ex}")
+                    print(f"[DEBUG] Binance connection exception on {base_url}: {ex}")
                     continue
 
-        # Bybit Testnet Adapter
         elif "bybit" in exchange_norm:
             base_url = "https://api-testnet.bybit.com"
             timestamp = str(int(time.time() * 1000))
@@ -144,11 +137,11 @@ def query_broker_telemetry(api_key: str, secret_key: str, exchange: str):
             res = requests.get(f"{base_url}/v5/account/wallet-balance?accountType=UNIFIED", headers=headers, timeout=6)
             if res.status_code == 200:
                 result = res.json().get("result", {}).get("list", [])
-                total_usdt = float(result[0].get("totalEquity", 10000.0)) if result else 10000.0
-                BOT_STATE["active_endpoint"] = base_url
-                return True, total_usdt, 0
+                if result:
+                    total_usdt = float(result[0].get("totalEquity", 0.0))
+                    BOT_STATE["active_endpoint"] = base_url
+                    return True, total_usdt, 0
 
-        # Alpaca Paper Trading Adapter
         elif "alpaca" in exchange_norm:
             base_url = "https://paper-api.alpaca.markets"
             headers = {
@@ -159,18 +152,13 @@ def query_broker_telemetry(api_key: str, secret_key: str, exchange: str):
             res = requests.get(f"{base_url}/v2/account", headers=headers, timeout=6)
             if res.status_code == 200:
                 data = res.json()
-                total_usdt = float(data.get("equity", 10000.0))
+                total_usdt = float(data.get("equity", 0.0))
                 BOT_STATE["active_endpoint"] = base_url
                 return True, total_usdt, 0
 
-        # Universal Sandbox / Demo Fallback for Seamless Onboarding
-        if len(api_key.strip()) > 10 and len(secret_key.strip()) > 10:
-            add_log(f"Accepted credentials for {exchange.upper()} via Sandbox Secure Bridge.", "SUCCESS")
-            return True, 10000.00, 0
-
         return False, 0.0, 0
     except Exception as e:
-        print(f"[CRITICAL EXCEPTION] query_broker_telemetry: {e}")
+        print(f"[CRITICAL] Telemetry failure: {e}")
         return False, 0.0, 0
 
 @app.get("/")
@@ -208,6 +196,11 @@ def get_bot_status():
     
     if success:
         BOT_STATE["current_balance"] = current_balance
+    else:
+        # If connection drops mid-session, kill automation immediately
+        BOT_STATE["is_active"] = False
+        BOT_STATE["is_connected"] = False
+        add_log("Broker telemetry lost. Auto-trading disabled for safety.", "ERROR")
 
     calculated_pnl = BOT_STATE["current_balance"] - BOT_STATE["initial_balance"]
     pnl_str = f"+${calculated_pnl:,.2f}" if calculated_pnl >= 0 else f"-${abs(calculated_pnl):,.2f}"
@@ -237,9 +230,10 @@ def save_api_keys(payload: ApiKeysPayload):
     if not payload.api_key or not payload.secret_key:
         raise HTTPException(status_code=400, detail="API Key and Secret Key are required.")
     
+    # Strictly query broker. Zero hardcoded guesses.
     success, balance, _ = query_broker_telemetry(payload.api_key, payload.secret_key, payload.exchange)
     
-    if success:
+    if success and balance > 0:
         BOT_STATE["api_key"] = payload.api_key
         BOT_STATE["secret_key"] = payload.secret_key
         BOT_STATE["exchange"] = payload.exchange
@@ -247,12 +241,12 @@ def save_api_keys(payload: ApiKeysPayload):
         BOT_STATE["initial_balance"] = balance
         BOT_STATE["current_balance"] = balance
         
-        add_log(f"Successfully connected to {payload.exchange.upper()}. Initial Balance: ${balance:,.2f}", "SUCCESS")
+        add_log(f"Verified connection to {payload.exchange.upper()}. Live Balance: ${balance:,.2f}", "SUCCESS")
         return {"status": "success", "message": f"Connected to {payload.exchange.upper()}."}
     else:
         BOT_STATE["is_connected"] = False
-        add_log(f"Failed to connect to {payload.exchange.upper()}. Check credentials.", "ERROR")
-        raise HTTPException(status_code=400, detail="Connection failed. Verify API credentials.")
+        add_log(f"Authentication failed for {payload.exchange.upper()}. Invalid keys or zero balance.", "ERROR")
+        raise HTTPException(status_code=400, detail="Connection failed. Verify API credentials and permissions.")
 
 @app.post("/api/bot/toggle")
 def toggle_auto_trading():
@@ -313,11 +307,17 @@ async def background_trading_engine():
     while True:
         await asyncio.sleep(15)
         if BOT_STATE["is_active"] and BOT_STATE["is_connected"]:
+            success, current_bal, _ = query_broker_telemetry(BOT_STATE["api_key"], BOT_STATE["secret_key"], BOT_STATE["exchange"])
+            if success:
+                BOT_STATE["current_balance"] = current_bal
+            else:
+                BOT_STATE["is_active"] = False
+                BOT_STATE["is_connected"] = False
+                add_log("Background sync lost. Trading halted.", "ERROR")
+                continue
+                
             import random
-            fluctuation = round(random.uniform(-10.0, 15.0), 2)
-            BOT_STATE["current_balance"] += fluctuation
-            
-            new_price = PRICE_HISTORY[-1] + fluctuation
+            new_price = PRICE_HISTORY[-1] + round(random.uniform(-5.0, 5.0), 2)
             PRICE_HISTORY.append(new_price)
             if len(PRICE_HISTORY) > 20:
                 PRICE_HISTORY.pop(0)
@@ -325,5 +325,5 @@ async def background_trading_engine():
 
 @app.on_event("startup")
 async def startup_event():
-    add_log("Mahlabahlasele 4.0 Multi-Broker Engine initialized.")
+    add_log("Mahlabahlasele 4.0 Strict Telemetry Engine initialized.")
     asyncio.create_task(background_trading_engine())
