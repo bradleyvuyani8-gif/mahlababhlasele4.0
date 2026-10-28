@@ -6,42 +6,46 @@
     <title>Mahlabahlasele 4.0 | Trading Dashboard</title>
     <style>
         :root {
-            --bg-color: #0d1117;
-            --panel-bg: #161b22;
-            --border-color: #30363d;
-            --accent-green: #238636;
-            --accent-red: #da3633;
-            --text-main: #c9d1d9;
-            --text-muted: #8b949e;
-            --neon-blue: #58a6ff;
+            --bg-color: #0b0f19;
+            --panel-bg: #111827;
+            --border-color: #1f2937;
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+            --neon-blue: #3b82f6;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-        body { background-color: var(--bg-color); color: var(--text-main); padding: 20px; }
-        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 15px; margin-bottom: 20px; }
-        .header h1 { font-size: 1.5rem; color: var(--neon-blue); letter-spacing: 1px; }
-        .status-badge { background: rgba(35, 134, 54, 0.2); color: #3fb950; border: 1px solid var(--accent-green); padding: 4px 12px; border-radius: 20px; font-size: 0.85rem; font-weight: bold; }
+        body { background-color: var(--bg-color); color: var(--text-main); padding: 15px; }
         
-        .grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
+        .header { display: flex; justify-content: space-between; align-items: center; background: var(--panel-bg); border: 1px solid var(--border-color); padding: 15px 20px; border-radius: 10px; margin-bottom: 15px; }
+        .header h1 { font-size: 1.25rem; color: var(--neon-blue); letter-spacing: 0.5px; font-weight: 700; }
+        .status-badge { background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border: 1px solid var(--accent-green); padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: bold; }
+        
+        .grid { display: grid; grid-template-columns: 1fr; gap: 15px; }
         @media(min-width: 768px) { .grid { grid-template-columns: 1fr 1fr; } }
 
-        .card { background-color: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 20px; }
-        .card h2 { font-size: 1.1rem; margin-bottom: 15px; color: var(--text-main); border-bottom: 1px solid var(--border-color); padding-bottom: 8px; }
+        .card { background-color: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 10px; padding: 15px; }
+        .card h2 { font-size: 0.95rem; margin-bottom: 12px; color: var(--text-main); border-bottom: 1px solid var(--border-color); padding-bottom: 8px; letter-spacing: 0.5px; }
         
-        .form-group { margin-bottom: 12px; }
-        label { display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 5px; }
-        input, select { width: 100%; padding: 10px; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-main); border-radius: 6px; font-size: 0.9rem; }
+        .form-group { margin-bottom: 10px; }
+        label { display: block; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase; }
+        input, select { width: 100%; padding: 9px 12px; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-main); border-radius: 6px; font-size: 0.85rem; }
+        input:focus, select:focus { outline: none; border-color: var(--neon-blue); }
         
-        button { width: 100%; padding: 12px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 0.95rem; margin-top: 10px; transition: opacity 0.2s; }
-        button:hover { opacity: 0.9; }
-        .btn-primary { background-color: var(--neon-blue); color: #000; }
+        button { width: 100%; padding: 11px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 0.85rem; margin-top: 8px; transition: opacity 0.2s; text-transform: uppercase; letter-spacing: 0.5px; }
+        button:hover { opacity: 0.85; }
+        .btn-primary { background-color: var(--neon-blue); color: #fff; }
         .btn-success { background-color: var(--accent-green); color: #fff; }
         .btn-danger { background-color: var(--accent-red); color: #fff; }
 
-        .metric-row { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 0.95rem; }
+        .metric-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 0.85rem; }
         .metric-value { font-weight: bold; color: var(--neon-blue); }
         
-        .alert-box { margin-top: 10px; padding: 10px; border-radius: 6px; font-size: 0.85rem; display: none; text-align: center; }
-        .alert-success { background: rgba(35, 134, 54, 0.2); color: #3fb950; border: 1px solid var(--accent-green); }
+        .alert-box { margin-top: 8px; padding: 8px; border-radius: 6px; font-size: 0.75rem; display: none; text-align: center; }
+        .alert-success { background: rgba(16, 185, 129, 0.2); color: var(--accent-green); border: 1px solid var(--accent-green); }
+        
+        .full-width { grid-column: 1 / -1; }
     </style>
 </head>
 <body>
@@ -52,7 +56,7 @@
     </div>
 
     <div class="grid">
-        <!-- API CONFIGURATION -->
+        <!-- 1. API CONFIGURATION -->
         <div class="card">
             <h2>API CONFIGURATION</h2>
             <div class="form-group">
@@ -68,4 +72,94 @@
                 <input type="password" id="apiKey" placeholder="Enter API Key">
             </div>
             <div class="form-group">
-                <label>Secret Key</label
+                <label>Secret Key</label>
+                <input type="password" id="secretKey" placeholder="Enter Secret Key">
+            </div>
+            <button class="btn-primary" onclick="saveConfig()">Save & Authorize Keys</button>
+            <div id="configAlert" class="alert-box alert-success">API Keys saved securely to backend!</div>
+        </div>
+
+        <!-- 2. BOT STATUS & METRICS -->
+        <div class="card">
+            <h2>BOT CONTROL PANEL</h2>
+            <div class="metric-row"><span>Engine State:</span> <span id="botStateText" class="metric-value">INACTIVE</span></div>
+            <div class="metric-row"><span>Active Exchange:</span> <span id="activeExchange" class="metric-value">Binance</span></div>
+            <div class="metric-row"><span>Account Balance:</span> <span class="metric-value">$15,450.00</span></div>
+            <div class="metric-row"><span>Open Positions:</span> <span id="openPositionsCount" class="metric-value">0</span></div>
+            <div class="metric-row"><span>Active Trades PnL:</span> <span class="metric-value" style="color: var(--accent-green);">+$0.00</span></div>
+        </div>
+
+        <!-- 3. RISK MANAGEMENT & MANUAL CONTROLS -->
+        <div class="card">
+            <h2>RISK MANAGEMENT & MANUAL</h2>
+            <div class="form-group">
+                <label>Lot Size (BTC)</label>
+                <input type="number" id="lotSize" value="0.15" step="0.01">
+            </div>
+            <div class="form-group">
+                <label>Leverage</label>
+                <select id="leverage">
+                    <option value="10x">10x</option>
+                    <option value="20x" selected>20x</option>
+                    <option value="50x">50x</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Max Risk per Trade (%)</label>
+                <input type="number" id="riskPct" value="2.5" step="0.1">
+            </div>
+            <button class="btn-primary" onclick="updateSettings()">Update Risk Parameters</button>
+            <div id="settingsAlert" class="alert-box alert-success">Risk settings updated!</div>
+        </div>
+
+        <!-- 4. LIVE MARKET FEED -->
+        <div class="card">
+            <h2>MARKET VIEW (BTC/USDT)</h2>
+            <div class="metric-row"><span>Pair:</span> <span class="metric-value">BTC/USDT 1H</span></div>
+            <div class="metric-row"><span>Current Price:</span> <span id="livePrice" class="metric-value">$80,619.84</span></div>
+            <div class="metric-row"><span>AI Strategy Signal:</span> <span id="aiSignal" class="metric-value">Bullish Momentum</span></div>
+            <div class="metric-row"><span>Telemetry Status:</span> <span class="metric-value" style="color: var(--accent-green);">Connected</span></div>
+        </div>
+
+        <!-- 5. AUTOMATED AI TRADING CONTROL (FULL WIDTH) -->
+        <div class="card full-width" style="border: 1px solid var(--accent-green);">
+            <h2>AI AUTOMATED TRADING ENGINE</h2>
+            <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px;">
+                Bot takes full control of execution, risk management, stop losses, and take profits automatically based on core learning scripts.
+            </p>
+            <button id="toggleBtn" class="btn-success" onclick="toggleBot()">ACTIVATE AUTOMATED TRADING</button>
+        </div>
+    </div>
+
+    <script>
+        async function fetchStatus() {
+            try {
+                let res = await fetch('/api/status');
+                let data = await res.json();
+                
+                document.getElementById('systemStatus').innerText = data.active ? 'ONLINE & ACTIVE' : 'ONLINE (IDLE)';
+                document.getElementById('botStateText').innerText = data.active ? 'ACTIVE' : 'INACTIVE';
+                document.getElementById('botStateText').style.color = data.active ? '#10b981' : '#ef4444';
+                document.getElementById('activeExchange').innerText = data.exchange.toUpperCase();
+                
+                let toggleBtn = document.getElementById('toggleBtn');
+                if (data.active) {
+                    toggleBtn.innerText = "DEACTIVATE AUTOMATED TRADING";
+                    toggleBtn.className = "btn-danger";
+                } else {
+                    toggleBtn.innerText = "ACTIVATE AUTOMATED TRADING";
+                    toggleBtn.className = "btn-success";
+                }
+
+                if (data.settings) {
+                    document.getElementById('lotSize').value = data.settings.lot_size;
+                    document.getElementById('leverage').value = data.settings.leverage;
+                    document.getElementById('riskPct').value = data.settings.risk_pct;
+                }
+            } catch (e) {
+                console.error("Backend connection error:", e);
+                document.getElementById('systemStatus').innerText = "DISCONNECTED";
+            }
+        }
+
+        async function saveConfig
