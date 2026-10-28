@@ -83,9 +83,10 @@ class SettingsPayload(BaseModel):
     stop_loss: float
     take_profit: float
 
-# Pure Broker Telemetry Fetcher (HMAC Signed REST - Zero Simulated Fluctuation)
-def fetch_broker_account_data(api_key: str, secret_key: str, exchange: str):
+# Broker Adapter Layer: Asking the platform questions via HMAC-SHA256 Signed Requests
+def query_broker_telemetry(api_key: str, secret_key: str, exchange: str):
     try:
+        # Route to Binance Testnet/Demo or Live based on configuration
         if "testnet" in exchange.lower() or "demo" in exchange.lower():
             base_url = "https://testnet.binance.vision"
         else:
@@ -94,6 +95,7 @@ def fetch_broker_account_data(api_key: str, secret_key: str, exchange: str):
         timestamp = int(time.time() * 1000)
         query_string = f"timestamp={timestamp}&recvWindow=60000"
         
+        # Sign the request using the API Secret Key (HMAC-SHA256)
         signature = hmac.new(
             secret_key.encode('utf-8'),
             query_string.encode('utf-8'),
@@ -101,32 +103,35 @@ def fetch_broker_account_data(api_key: str, secret_key: str, exchange: str):
         ).hexdigest()
         
         headers = {"X-MBX-APIKEY": api_key}
-        acc_url = f"{base_url}/api/v3/account?{query_string}&signature={signature}"
+        account_url = f"{base_url}/api/v3/account?{query_string}&signature={signature}"
         
-        res = requests.get(acc_url, headers=headers, timeout=5)
-        if res.status_code == 200:
-            data = res.json()
+        response = requests.get(account_url, headers=headers, timeout=6)
+        
+        if response.status_code == 200:
+            data = response.json()
             balances = data.get("balances", [])
-            actual_usdt = 0.0
+            total_usdt = 0.0
             for b in balances:
                 if b["asset"] in ["USDT", "BUSD"]:
-                    actual_usdt = float(b["free"]) + float(b["locked"])
+                    total_usdt = float(b["free"]) + float(b["locked"])
                     break
             
-            timestamp_o = int(time.time() * 1000)
-            qs_orders = f"timestamp={timestamp_o}&recvWindow=60000"
+            # Query open orders / positions count from broker
+            ts_orders = int(time.time() * 1000)
+            qs_orders = f"timestamp={ts_orders}&recvWindow=60000"
             sig_orders = hmac.new(
                 secret_key.encode('utf-8'),
                 qs_orders.encode('utf-8'),
                 hashlib.sha256
             ).hexdigest()
             orders_url = f"{base_url}/api/v3/openOrders?{qs_orders}&signature={sig_orders}"
-            orders_res = requests.get(orders_url, headers=headers, timeout=5)
+            orders_res = requests.get(orders_url, headers=headers, timeout=6)
             open_orders = orders_res.json() if orders_res.status_code == 200 else []
             positions_count = len(open_orders) if isinstance(open_orders, list) else 0
             
-            return True, actual_usdt, positions_count
+            return True, total_usdt, positions_count
         else:
+            # If broker rejects authorization (e.g. invalid keys or permissions), return failure flag
             return False, 0.0, 0
     except Exception as e:
         return False, 0.0, 0
@@ -158,7 +163,8 @@ def get_bot_status():
             }
         }
 
-    success, current_balance, positions_count = fetch_broker_account_data(
+    # Continuously poll the broker adapter for live account data
+    success, current_balance, positions_count = query_broker_telemetry(
         BOT_STATE["api_key"], 
         BOT_STATE["secret_key"], 
         BOT_STATE["exchange"]
@@ -167,6 +173,7 @@ def get_bot_status():
     if success:
         BOT_STATE["current_balance"] = current_balance
 
+    # Calculate actual profit/loss relative to initial baseline balance captured upon entry
     calculated_pnl = BOT_STATE["current_balance"] - BOT_STATE["initial_balance"]
     pnl_str = f"+${calculated_pnl:,.2f}" if calculated_pnl >= 0 else f"-${abs(calculated_pnl):,.2f}"
 
@@ -195,7 +202,8 @@ def save_api_keys(payload: ApiKeysPayload):
     if not payload.api_key or not payload.secret_key:
         raise HTTPException(status_code=400, detail="API Key and Secret Key are required.")
     
-    success, balance, _ = fetch_broker_account_data(payload.api_key, payload.secret_key, payload.exchange)
+    # Perform initial broker handshake verification
+    success, balance, _ = query_broker_telemetry(payload.api_key, payload.secret_key, payload.exchange)
     
     if success:
         BOT_STATE["api_key"] = payload.api_key
@@ -205,17 +213,17 @@ def save_api_keys(payload: ApiKeysPayload):
         BOT_STATE["initial_balance"] = balance
         BOT_STATE["current_balance"] = balance
         
-        add_log(f"API keys authorized successfully. Initial Balance recorded: ${balance:,.2f}", "SUCCESS")
+        add_log(f"Broker connection verified successfully. Initial Balance recorded: ${balance:,.2f}", "SUCCESS")
         return {"status": "success", "message": "API keys connected and verified."}
     else:
         BOT_STATE["is_connected"] = False
-        add_log("API connection failed. Verify keys and permissions.", "ERROR")
-        raise HTTPException(status_code=400, detail="Failed to connect to broker API.")
+        add_log("Broker connection rejected. Check API Key permissions or secret.", "ERROR")
+        raise HTTPException(status_code=400, detail="Authentication failed with broker API.")
 
 @app.post("/api/bot/toggle")
 def toggle_auto_trading():
     if not BOT_STATE["is_connected"]:
-        add_log("Activation blocked: API keys not verified.", "ERROR")
+        add_log("Activation blocked: API connection not established.", "ERROR")
         raise HTTPException(status_code=400, detail="Cannot activate. Connect valid API keys first.")
 
     BOT_STATE["is_active"] = not BOT_STATE["is_active"]
@@ -250,7 +258,7 @@ def get_positions():
     if not BOT_STATE["is_connected"]:
         return {"positions": []}
     
-    success, _, positions_count = fetch_broker_account_data(BOT_STATE["api_key"], BOT_STATE["secret_key"], BOT_STATE["exchange"])
+    success, _, positions_count = query_broker_telemetry(BOT_STATE["api_key"], BOT_STATE["secret_key"], BOT_STATE["exchange"])
     return {
         "positions": [
             {
@@ -266,14 +274,13 @@ def get_positions():
 def evaluate_ai_strategy(current_price: float):
     prev_price = PRICE_HISTORY[-2] if len(PRICE_HISTORY) > 1 else current_price
     momentum_delta = current_price - prev_price
-    add_log(f"AI Reasoning: Momentum Delta = {momentum_delta:+.2f} | Live Balance: ${BOT_STATE['current_balance']:,.2f}", "INFO")
+    add_log(f"AI Reasoning: Momentum Delta = {momentum_delta:+.2f} | Synced Balance: ${BOT_STATE['current_balance']:,.2f}", "INFO")
 
 async def background_trading_engine():
     while True:
         await asyncio.sleep(15)
         if BOT_STATE["is_active"] and BOT_STATE["is_connected"]:
-            # Real-time telemetry update without fake fluctuation injection
-            success, current_bal, _ = fetch_broker_account_data(BOT_STATE["api_key"], BOT_STATE["secret_key"], BOT_STATE["exchange"])
+            success, current_bal, _ = query_broker_telemetry(BOT_STATE["api_key"], BOT_STATE["secret_key"], BOT_STATE["exchange"])
             if success:
                 BOT_STATE["current_balance"] = current_bal
                 
@@ -287,5 +294,5 @@ async def background_trading_engine():
 
 @app.on_event("startup")
 async def startup_event():
-    add_log("Mahlabahlasele 4.0 Backend Engine ready with Pure Broker Telemetry.")
+    add_log("Mahlabahlasele 4.0 Backend Engine initialized with Secure Broker Adapter.")
     asyncio.create_task(background_trading_engine())
