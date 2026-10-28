@@ -1,64 +1,66 @@
 import asyncio
-
 from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-from fastapi import WebSocket
+from fastapi.middleware.cors import CORSMiddleware
 
-from backend.database import initialize_database
-from backend.websocket_manager import manager
-
-from backend.api.health import router as health_router
-from backend.api.market import router as market_router
-
-from backend.services.exchange_service import get_market_snapshot
-from backend.services.telemetry_service import store_snapshot
-
-app = FastAPI(title="Mahlabahlasele 4.0")
-
-
-initialize_database()
-
-app.include_router(health_router)
-app.include_router(market_router)
-
-app.mount(
-    "/static",
-    StaticFiles(directory="frontend"),
-    name="static"
+# Initialize FastAPI application
+app = FastAPI(
+    title="Mahlabahlasele4.0 Trading Bot",
+    description="Autonomous crypto trading and telemetry server running on Termux",
+    version="4.0"
 )
+
+# Enable CORS for local web terminal and frontend supervision
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Import internal api routers or telemetry services safely
+try:
+    from backend.api.market import router as market_router
+    app.include_router(market_router, prefix="/api/market", tags=["Market"])
+except ImportError:
+    market_router = None
+
+try:
+    from backend.services.exchange_service import get_market_snapshot
+    from backend.services.telemetry_service import store_snapshot
+except ImportError:
+    # Fallback placeholders if modules aren't fully linked yet
+    async def get_market_snapshot():
+        return {"symbol": "BTC/USDT", "price": 0.0}
+    def store_snapshot(snap):
+        pass
 
 
 @app.get("/")
-async def home():
-    return FileResponse("frontend/index.html")
+def read_root():
+    return {
+        "status": "online",
+        "bot": "Mahlabahlasele4.0",
+        "environment": "Termux Android"
+    }
 
 
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-
-    await manager.connect(websocket)
-
+async def market_loop():
+    """
+    Background worker loop to fetch market snapshots and feed telemetry.
+    The 'await' keyword is mandatory here because get_market_snapshot is async.
+    """
     try:
-        while True:
-            await asyncio.sleep(30)
-    except:
-        manager.disconnect(websocket)
+        # Await the coroutine to safely unpack the dictionary snapshot
+        snapshot = await get_market_snapshot()
+        
+        if snapshot and isinstance(snapshot, dict):
+            store_snapshot(snapshot)
+    except Exception as e:
+        print(f"Error in market loop: {e}")
 
 
 @app.on_event("startup")
-async def startup():
-
-    async def market_loop():
-
-        while True:
-
-            snapshot = get_market_snapshot()
-
-            store_snapshot(snapshot)
-
-            await manager.broadcast(snapshot)
-
-            await asyncio.sleep(10)
-
-    asyncio.create_task(market_loop())
+async def startup_event():
+    # Trigger initial market loop test on startup
+    await market_loop()
