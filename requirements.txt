@@ -1,7 +1,7 @@
 fastapi
 uvicorn
 websockets
-ccxt
+
 requests
 pydantic
 python-dotenv
