@@ -9,6 +9,7 @@ class ExchangeService:
         order_book = self.client.fetch_order_book(symbol)
         
         return {
+            "symbol": symbol,
             "ticker": ticker,
             "order_book": order_book
         }
