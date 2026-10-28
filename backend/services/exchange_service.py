@@ -1,17 +1,22 @@
-import ccxt
+# REMOVE: import ccxt
+from backend.services.custom_exchange import SimpleExchangeClient
 
-exchange = ccxt.binance({
-    "enableRateLimit": True
-})
+class ExchangeService:
+    def __init__(self):
+        # Initialize our lightweight alternative client
+        self.client = SimpleExchangeClient("binance")
 
+    def get_market_snapshot(self, symbol: str):
+        # Re-map the method calls your FastAPI routes expect
+        ticker = self.client.fetch_ticker(symbol)
+        order_book = self.client.fetch_order_book(symbol)
+        
+        return {
+            "ticker": ticker,
+            "order_book": order_book
+        }
 
-async def get_market_snapshot(symbol="BTC/USDT"):
-    ticker = exchange.fetch_ticker(symbol)
-
-    return {
-        "symbol": symbol,
-        "last": ticker["last"],
-        "high": ticker["high"],
-        "low": ticker["low"],
-        "volume": ticker["baseVolume"]
-    }
+# Global helper function expected by backend/api/market.py
+def get_market_snapshot(symbol: str = "BTC/USDT"):
+    service = ExchangeService()
+    return service.get_market_snapshot(symbol)
