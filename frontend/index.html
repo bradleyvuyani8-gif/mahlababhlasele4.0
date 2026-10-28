@@ -154,6 +154,9 @@
                 document.getElementById('botStateText').style.color = data.active ? '#10b981' : '#ef4444';
                 document.getElementById('activeExchange').innerText = data.exchange.toUpperCase();
                 document.getElementById('accountBalance').innerText = "$" + parseFloat(data.balance).toLocaleString(undefined, {minimumFractionDigits: 2});
+                document.getElementById('openPositionsCount').innerText = data.positions_count;
+                document.getElementById('activePnl').innerText = data.pnl;
+                document.getElementById('activePnl').style.color = data.pnl.startsWith("+") ? '#10b981' : '#ef4444';
                 
                 let toggleBtn = document.getElementById('toggleBtn');
                 if (data.active) {
@@ -260,9 +263,9 @@
             }
         }
 
-        setInterval(fetchStatus, 2000);
-        setInterval(fetchLogs, 1500);
-        setInterval(fetchMarket, 3000);
+        setInterval(fetchStatus, 3000);
+        setInterval(fetchLogs, 2000);
+        setInterval(fetchMarket, 4000);
 
         fetchStatus();
         fetchLogs();
