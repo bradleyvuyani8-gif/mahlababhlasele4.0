@@ -22,9 +22,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-CONFIG_FILE = "data/config.json"
-os.makedirs("data", exist_ok=True)
-
+# Clean initial state on every boot (no automatic loading of saved keys)
 BOT_STATE = {
     "is_active": False,
     "lot_size": 0.15,
@@ -46,15 +44,6 @@ def add_log(message: str, level: str = "INFO"):
     if len(ACTIVITY_LOGS) > 50:
         ACTIVITY_LOGS.pop()
     print(f"[{timestamp}] [{level}] {message}")
-
-if os.path.exists(CONFIG_FILE):
-    try:
-        with open(CONFIG_FILE, "r") as f:
-            saved_config = json.load(f)
-            BOT_STATE.update(saved_config)
-        add_log("Loaded saved configuration from data/config.json")
-    except Exception as e:
-        add_log(f"Error loading config.json: {e}", "ERROR")
 
 if os.path.exists("frontend"):
     app.mount("/static", StaticFiles(directory="frontend"), name="static")
@@ -92,23 +81,6 @@ def get_bot_status():
     active_pnl = "+$145.50" if BOT_STATE["is_active"] else "+$0.00"
     open_positions = 1 if BOT_STATE["is_active"] else 0
 
-    # Live API Wallet Query Attempt
-    if has_keys:
-        try:
-            import ccxt
-            exchange_class = getattr(ccxt, BOT_STATE["exchange"], None)
-            if exchange_class:
-                ex = exchange_class({
-                    'apiKey': BOT_STATE["api_key"],
-                    'secret': BOT_STATE["secret_key"],
-                    'enableRateLimit': True,
-                })
-                balance_data = ex.fetch_balance()
-                live_balance = balance_data.get('USDT', {}).get('free', live_balance)
-        except Exception as e:
-            # Fallback simulation tied to keys if network or auth restricts direct fetch on testnet/mobile
-            pass
-
     return {
         "active": BOT_STATE["is_active"],
         "exchange": BOT_STATE["exchange"],
@@ -131,15 +103,13 @@ def get_activity_logs():
 
 @app.post("/api/config")
 def save_api_keys(payload: ApiKeysPayload):
+    # Temporarily holds keys in active memory for the current session only
     BOT_STATE["api_key"] = payload.api_key
     BOT_STATE["secret_key"] = payload.secret_key
     BOT_STATE["exchange"] = payload.exchange
 
-    with open(CONFIG_FILE, "w") as f:
-        json.dump(BOT_STATE, f, indent=4)
-
-    add_log(f"API keys authorized & saved for exchange: {payload.exchange.upper()}", "SUCCESS")
-    return {"status": "success", "message": "API Keys authorized and saved successfully"}
+    add_log(f"API keys authorized for session on exchange: {payload.exchange.upper()}", "SUCCESS")
+    return {"status": "success", "message": "API Keys authorized for current session"}
 
 @app.post("/api/bot/toggle")
 def toggle_auto_trading():
@@ -155,9 +125,6 @@ def update_settings(payload: SettingsPayload):
     BOT_STATE["risk_pct"] = payload.risk_pct
     BOT_STATE["stop_loss"] = payload.stop_loss
     BOT_STATE["take_profit"] = payload.take_profit
-    
-    with open(CONFIG_FILE, "w") as f:
-        json.dump(BOT_STATE, f, indent=4)
         
     add_log(f"Risk parameters updated: Lot={payload.lot_size}, Lev={payload.leverage}, Risk={payload.risk_pct}%")
     return {"status": "success", "message": "Risk parameters updated"}
@@ -198,5 +165,5 @@ async def background_trading_engine():
 
 @app.on_event("startup")
 async def startup_event():
-    add_log("Mahlabahlasele 4.0 Backend Engine initialized successfully.")
+    add_log("Mahlabahlasele 4.0 Backend Engine initialized with fresh state.")
     asyncio.create_task(background_trading_engine())
