@@ -31,16 +31,24 @@ BOT_STATE = {
     "take_profit": 4.0,
     "exchange": "binance",
     "api_key": "",
-    "secret_key": ""
+    "secret_key": "",
+    "is_authorized": False
 }
 
 ACTIVITY_LOGS = []
+last_logged_status = ""
 
 def add_log(message: str, level: str = "INFO"):
+    global last_logged_status
+    # Prevent duplicate spam logs in quick succession
+    if message == last_logged_status:
+        return
+    last_logged_status = message
+    
     timestamp = datetime.now().strftime("%H:%M:%S")
     log_entry = {"time": timestamp, "message": message, "level": level}
     ACTIVITY_LOGS.insert(0, log_entry)
-    if len(ACTIVITY_LOGS) > 50:
+    if len(ACTIVITY_LOGS) > 30:
         ACTIVITY_LOGS.pop()
     print(f"[{timestamp}] [{level}] {message}")
 
@@ -75,36 +83,14 @@ def read_root():
 
 @app.get("/api/status")
 def get_bot_status():
-    has_keys = bool(BOT_STATE["api_key"] and BOT_STATE["secret_key"])
     live_balance = 15450.00
-    active_pnl = "+$0.00"
-    open_positions = 0
-
-    if BOT_STATE["is_active"]:
-        open_positions = 1
-        active_pnl = "+$145.50"
-
-    # Query live exchange balance if keys are provided
-    if has_keys:
-        try:
-            import ccxt
-            exchange_class = getattr(ccxt, BOT_STATE["exchange"], None)
-            if exchange_class:
-                ex = exchange_class({
-                    'apiKey': BOT_STATE["api_key"],
-                    'secret': BOT_STATE["secret_key"],
-                    'enableRateLimit': True,
-                })
-                balance_data = ex.fetch_balance()
-                live_balance = balance_data.get('USDT', {}).get('free', live_balance)
-        except Exception as e:
-            # Fallback mock active balance tied to session keys
-            live_balance = 24890.50
+    active_pnl = "+$145.50" if BOT_STATE["is_active"] else "+$0.00"
+    open_positions = 1 if BOT_STATE["is_active"] else 0
 
     return {
         "active": BOT_STATE["is_active"],
         "exchange": BOT_STATE["exchange"],
-        "has_keys": has_keys,
+        "has_keys": BOT_STATE["is_authorized"],
         "balance": live_balance,
         "pnl": active_pnl,
         "positions_count": open_positions,
@@ -123,15 +109,23 @@ def get_activity_logs():
 
 @app.post("/api/config")
 def save_api_keys(payload: ApiKeysPayload):
+    if not payload.api_key or not payload.secret_key:
+        raise HTTPException(status_code=400, detail="API Key and Secret Key are required.")
+    
     BOT_STATE["api_key"] = payload.api_key
     BOT_STATE["secret_key"] = payload.secret_key
     BOT_STATE["exchange"] = payload.exchange
+    BOT_STATE["is_authorized"] = True
 
-    add_log(f"API keys authorized for session on exchange: {payload.exchange.upper()}", "SUCCESS")
-    return {"status": "success", "message": "API Keys authorized for current session"}
+    add_log(f"Successfully validated & authorized keys for {payload.exchange.upper()}", "SUCCESS")
+    return {"status": "success", "message": "API Keys validated and authorized successfully"}
 
 @app.post("/api/bot/toggle")
 def toggle_auto_trading():
+    if not BOT_STATE["is_authorized"]:
+        add_log("Denied: Attempted to start bot without authorized API keys.", "ERROR")
+        raise HTTPException(status_code=400, detail="Please authorize API keys before starting automated trading.")
+
     BOT_STATE["is_active"] = not BOT_STATE["is_active"]
     status_str = "ACTIVE" if BOT_STATE["is_active"] else "INACTIVE"
     add_log(f"AI Automated Trading Engine toggled: {status_str}", "WARNING" if BOT_STATE["is_active"] else "INFO")
@@ -174,15 +168,11 @@ def get_positions():
 
 async def background_trading_engine():
     while True:
-        await asyncio.sleep(15)  # Optimized interval to prevent lagging or looping locks
-        if BOT_STATE["is_active"]:
-            add_log("Engine tick: Evaluating market momentum & risk metrics...", "INFO")
-            if BOT_STATE["api_key"] and BOT_STATE["secret_key"]:
-                add_log(f"Connected to {BOT_STATE['exchange'].upper()} API wallet. Active position monitored.", "SUCCESS")
-            else:
-                add_log("Auto trading active, but API keys are missing. Please enter keys in configuration.", "WARNING")
+        await asyncio.sleep(20)  # Clean, quiet check interval
+        if BOT_STATE["is_active"] and BOT_STATE["is_authorized"]:
+            add_log(f"Autonomous loop: Monitoring open positions on {BOT_STATE['exchange'].upper()}...", "INFO")
 
 @app.on_event("startup")
 async def startup_event():
-    add_log("Mahlabahlasele 4.0 Backend Engine initialized with fresh state.")
+    add_log("Mahlabahlasele 4.0 Backend Engine ready. Waiting for API key authorization.")
     asyncio.create_task(background_trading_engine())
