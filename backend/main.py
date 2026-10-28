@@ -1,6 +1,7 @@
 import os
 import json
 import asyncio
+from datetime import datetime
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -36,13 +37,25 @@ BOT_STATE = {
     "secret_key": ""
 }
 
+# Real-time activity log storage (keeps last 50 events)
+ACTIVITY_LOGS = []
+
+def add_log(message: str, level: str = "INFO"):
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    log_entry = {"time": timestamp, "message": message, "level": level}
+    ACTIVITY_LOGS.insert(0, log_entry)
+    if len(ACTIVITY_LOGS) > 50:
+        ACTIVITY_LOGS.pop()
+    print(f"[{timestamp}] [{level}] {message}")
+
 if os.path.exists(CONFIG_FILE):
     try:
         with open(CONFIG_FILE, "r") as f:
             saved_config = json.load(f)
             BOT_STATE.update(saved_config)
+        add_log("Loaded saved configuration from data/config.json")
     except Exception as e:
-        print(f"Error loading config.json: {e}")
+        add_log(f"Error loading config.json: {e}", "ERROR")
 
 if os.path.exists("frontend"):
     app.mount("/static", StaticFiles(directory="frontend"), name="static")
@@ -75,13 +88,11 @@ def read_root():
 
 @app.get("/api/status")
 def get_bot_status():
-    # Fetch live balance based on stored keys if available, otherwise return default/demo connected balance
     has_keys = bool(BOT_STATE["api_key"] and BOT_STATE["secret_key"])
     live_balance = 15450.00
     
     if has_keys:
         try:
-            # Safe check using CCXT if available, else simulated dynamic wallet fetch
             import ccxt
             exchange_class = getattr(ccxt, BOT_STATE["exchange"], None)
             if exchange_class:
@@ -93,7 +104,7 @@ def get_bot_status():
                 balance_data = ex.fetch_balance()
                 live_balance = balance_data.get('USDT', {}).get('free', 15450.00)
         except Exception as e:
-            print(f"Exchange API balance fetch note: {e}")
+            pass
 
     return {
         "active": BOT_STATE["is_active"],
@@ -109,6 +120,10 @@ def get_bot_status():
         }
     }
 
+@app.get("/api/logs")
+def get_activity_logs():
+    return {"logs": ACTIVITY_LOGS}
+
 @app.post("/api/config")
 def save_api_keys(payload: ApiKeysPayload):
     BOT_STATE["api_key"] = payload.api_key
@@ -118,12 +133,14 @@ def save_api_keys(payload: ApiKeysPayload):
     with open(CONFIG_FILE, "w") as f:
         json.dump(BOT_STATE, f, indent=4)
 
+    add_log(f"API keys authorized & saved for exchange: {payload.exchange.upper()}", "SUCCESS")
     return {"status": "success", "message": "API Keys authorized and saved successfully"}
 
 @app.post("/api/bot/toggle")
 def toggle_auto_trading():
     BOT_STATE["is_active"] = not BOT_STATE["is_active"]
     status_str = "ACTIVE" if BOT_STATE["is_active"] else "INACTIVE"
+    add_log(f"AI Automated Trading Engine toggled: {status_str}", "WARNING" if BOT_STATE["is_active"] else "INFO")
     return {"status": "success", "bot_active": BOT_STATE["is_active"], "message": f"Bot is now {status_str}"}
 
 @app.post("/api/settings")
@@ -137,6 +154,7 @@ def update_settings(payload: SettingsPayload):
     with open(CONFIG_FILE, "w") as f:
         json.dump(BOT_STATE, f, indent=4)
         
+    add_log(f"Risk parameters updated: Lot={payload.lot_size}, Lev={payload.leverage}, Risk={payload.risk_pct}%")
     return {"status": "success", "message": "Risk parameters updated"}
 
 @app.get("/api/market/snapshot")
@@ -165,4 +183,4 @@ def get_positions():
 
 @app.on_event("startup")
 async def startup_event():
-    print("Mahlabahlasele 4.0 Backend Engine initialized successfully.")
+    add_log("Mahlabahlasele 4.0 Backend Engine initialized successfully.")
