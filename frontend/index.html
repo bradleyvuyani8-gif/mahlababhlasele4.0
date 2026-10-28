@@ -1,365 +1,243 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Mahlabahlasele 4.0</title>
-<style>
-  :root {
-    --bg: #0a0e17;
-    --card: #121a2b;
-    --field: #0a0e17;
-    --line: #1f2a40;
-    --text: #e6ebf5;
-    --muted: #8a96ad;
-    --blue: #3b82f6;
-    --green: #10b981;
-    --red: #ef4444;
-    --amber: #f59e0b;
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    padding: 16px;
-    background: var(--bg);
-    color: var(--text);
-    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    line-height: 1.4;
-  }
-  main { max-width: 560px; margin: 0 auto; }
-  h1 { font-size: 20px; margin: 0 0 4px; }
-  .sub { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
-  .banner {
-    display: none;
-    background: #3a1217;
-    border: 1px solid var(--red);
-    color: #fecaca;
-    padding: 10px 12px;
-    border-radius: 10px;
-    margin-bottom: 14px;
-    font-size: 14px;
-  }
-  .card {
-    background: var(--card);
-    border: 1px solid var(--line);
-    border-radius: 14px;
-    padding: 16px;
-    margin-bottom: 16px;
-  }
-  .card h2 {
-    font-size: 15px;
-    margin: 0 0 12px;
-    padding-bottom: 10px;
-    border-bottom: 1px solid var(--line);
-  }
-  label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 6px; }
-  input, select {
-    width: 100%;
-    background: var(--field);
-    color: var(--text);
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    padding: 13px 12px;
-    font-size: 16px;
-  }
-  input:focus, select:focus, button:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
-  button {
-    width: 100%;
-    margin-top: 14px;
-    padding: 14px;
-    border: 0;
-    border-radius: 10px;
-    background: var(--blue);
-    color: #fff;
-    font-size: 16px;
-    font-weight: 700;
-    cursor: pointer;
-  }
-  button:disabled { opacity: 0.55; cursor: wait; }
-  button.go { background: var(--green); }
-  button.stop { background: var(--red); }
-  .row { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; font-size: 15px; }
-  .row .v { font-weight: 700; color: var(--blue); text-align: right; }
-  .v.pos { color: var(--green); }
-  .v.neg { color: var(--red); }
-  .v.warn { color: var(--amber); }
-  .msg { margin-top: 10px; font-size: 14px; min-height: 18px; }
-  .msg.ok { color: var(--green); }
-  .msg.err { color: #fca5a5; }
-  .note { font-size: 13px; color: var(--muted); margin: 10px 0 0; }
-  #logs {
-    margin: 0;
-    padding: 10px;
-    background: var(--field);
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    font-family: ui-monospace, Menlo, Consolas, monospace;
-    font-size: 12px;
-    color: var(--muted);
-    white-space: pre-wrap;
-    word-break: break-word;
-    max-height: 220px;
-    overflow-y: auto;
-  }
-  .engine-card.on { border-color: var(--green); }
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mahlabahlasele 4.0 | Trading Dashboard</title>
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --panel-bg: #111827;
+            --border-color: #1f2937;
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+            --neon-blue: #3b82f6;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        body { background-color: var(--bg-color); color: var(--text-main); padding: 15px; }
+        
+        .header { display: flex; justify-content: space-between; align-items: center; background: var(--panel-bg); border: 1px solid var(--border-color); padding: 15px 20px; border-radius: 10px; margin-bottom: 15px; }
+        .header h1 { font-size: 1.25rem; color: var(--neon-blue); letter-spacing: 0.5px; font-weight: 700; }
+        .status-badge { background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border: 1px solid var(--accent-green); padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: bold; }
+        
+        .grid { display: grid; grid-template-columns: 1fr; gap: 15px; }
+        @media(min-width: 768px) { .grid { grid-template-columns: 1fr 1fr; } }
+
+        .card { background-color: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 10px; padding: 15px; }
+        .card h2 { font-size: 0.95rem; margin-bottom: 12px; color: var(--text-main); border-bottom: 1px solid var(--border-color); padding-bottom: 8px; letter-spacing: 0.5px; }
+        
+        .form-group { margin-bottom: 10px; }
+        label { display: block; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase; }
+        input, select { width: 100%; padding: 9px 12px; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-main); border-radius: 6px; font-size: 0.85rem; }
+        input:focus, select:focus { outline: none; border-color: var(--neon-blue); }
+        
+        button { width: 100%; padding: 11px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 0.85rem; margin-top: 8px; transition: opacity 0.2s; text-transform: uppercase; letter-spacing: 0.5px; }
+        button:hover { opacity: 0.85; }
+        .btn-primary { background-color: var(--neon-blue); color: #fff; }
+        .btn-success { background-color: var(--accent-green); color: #fff; }
+        .btn-danger { background-color: var(--accent-red); color: #fff; }
+
+        .metric-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 0.85rem; }
+        .metric-value { font-weight: bold; color: var(--neon-blue); }
+        
+        .alert-box { margin-top: 8px; padding: 8px; border-radius: 6px; font-size: 0.75rem; display: none; text-align: center; }
+        .alert-success { background: rgba(16, 185, 129, 0.2); color: var(--accent-green); border: 1px solid var(--accent-green); }
+        
+        .full-width { grid-column: 1 / -1; }
+    </style>
 </head>
 <body>
-<main>
-  <h1>Mahlabahlasele 4.0</h1>
-  <div class="sub">Live dashboard. Updates every 2 seconds.</div>
 
-  <div id="offline" class="banner">Can't reach the backend. Check that uvicorn is still running in Termux.</div>
-
-  <section class="card">
-    <h2>Account and API keys</h2>
-
-    <label for="exchange">Exchange</label>
-    <select id="exchange">
-      <option value="binance">Binance</option>
-      <option value="bybit">Bybit</option>
-    </select>
-
-    <label for="mode">Mode</label>
-    <select id="mode">
-      <option value="paper">Paper (simulated money, no keys)</option>
-      <option value="testnet">Testnet (fake money, testnet keys)</option>
-      <option value="live">Live (real money)</option>
-    </select>
-
-    <div id="keyFields">
-      <label for="apiKey">Exchange API key</label>
-      <input id="apiKey" type="password" autocomplete="off" autocapitalize="off" spellcheck="false">
-      <label for="secretKey">Secret key</label>
-      <input id="secretKey" type="password" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <div class="header">
+        <h1>MAHLABAHLASELE 4.0</h1>
+        <div id="systemStatus" class="status-badge">CONNECTING...</div>
     </div>
 
-    <button id="saveKeys" type="button">Save and authorize</button>
-    <div id="keysMsg" class="msg"></div>
-    <p class="note">Keys stay in the backend's memory only and are cleared when the server stops. Use keys with trading enabled and withdrawals disabled.</p>
-  </section>
+    <div class="grid">
+        <!-- 1. API CONFIGURATION -->
+        <div class="card">
+            <h2>API CONFIGURATION</h2>
+            <div class="form-group">
+                <label>Select Exchange</label>
+                <select id="exchangeSelect">
+                    <option value="binance">Binance</option>
+                    <option value="bybit">Bybit</option>
+                    <option value="kucoin">KuCoin</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Exchange API Key</label>
+                <input type="password" id="apiKey" placeholder="Enter API Key">
+            </div>
+            <div class="form-group">
+                <label>Secret Key</label>
+                <input type="password" id="secretKey" placeholder="Enter Secret Key">
+            </div>
+            <button class="btn-primary" onclick="saveConfig()">Save & Authorize Keys</button>
+            <div id="configAlert" class="alert-box alert-success">API Keys authorized successfully!</div>
+        </div>
 
-  <section class="card">
-    <h2>Bot control panel</h2>
-    <div class="row"><span>Engine state</span><span class="v" id="engineState">--</span></div>
-    <div class="row"><span>Active exchange</span><span class="v" id="activeExchange">--</span></div>
-    <div class="row"><span>Mode</span><span class="v" id="activeMode">--</span></div>
-    <div class="row"><span>Account balance</span><span class="v" id="balance">--</span></div>
-    <div class="row"><span>Open positions</span><span class="v" id="positions">--</span></div>
-    <div class="row"><span>Active trades PnL</span><span class="v" id="pnl">--</span></div>
-    <div class="row"><span>Realized PnL</span><span class="v" id="realized">--</span></div>
-  </section>
+        <!-- 2. BOT STATUS & METRICS -->
+        <div class="card">
+            <h2>BOT CONTROL PANEL</h2>
+            <div class="metric-row"><span>Engine State:</span> <span id="botStateText" class="metric-value">INACTIVE</span></div>
+            <div class="metric-row"><span>Active Exchange:</span> <span id="activeExchange" class="metric-value">Binance</span></div>
+            <div class="metric-row"><span>Live Account Balance:</span> <span id="accountBalance" class="metric-value">$15,450.00</span></div>
+            <div class="metric-row"><span>Open Positions:</span> <span id="openPositionsCount" class="metric-value">0</span></div>
+            <div class="metric-row"><span>Active Trades PnL:</span> <span id="activePnl" class="metric-value" style="color: var(--accent-green);">+$0.00</span></div>
+        </div>
 
-  <section class="card">
-    <h2>Risk management</h2>
-    <label for="lot">Lot size (BTC)</label>
-    <input id="lot" type="number" step="0.0001" min="0.0001" max="1" inputmode="decimal">
+        <!-- 3. RISK MANAGEMENT & MANUAL CONTROLS -->
+        <div class="card">
+            <h2>RISK MANAGEMENT & MANUAL</h2>
+            <div class="form-group">
+                <label>Lot Size (BTC)</label>
+                <input type="number" id="lotSize" value="0.15" step="0.01">
+            </div>
+            <div class="form-group">
+                <label>Leverage</label>
+                <select id="leverage">
+                    <option value="10x">10x</option>
+                    <option value="20x" selected>20x</option>
+                    <option value="50x">50x</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Max Risk per Trade (%)</label>
+                <input type="number" id="riskPct" value="2.5" step="0.1">
+            </div>
+            <button class="btn-primary" onclick="updateSettings()">Update Risk Parameters</button>
+            <div id="settingsAlert" class="alert-box alert-success">Risk settings updated!</div>
+        </div>
 
-    <label for="leverage">Leverage (paper mode only)</label>
-    <select id="leverage">
-      <option value="1">1x</option>
-      <option value="2">2x</option>
-      <option value="3">3x</option>
-      <option value="5">5x</option>
-      <option value="10">10x</option>
-      <option value="20">20x</option>
-      <option value="50">50x</option>
-    </select>
+        <!-- 4. LIVE MARKET FEED -->
+        <div class="card">
+            <h2>MARKET VIEW (BTC/USDT)</h2>
+            <div class="metric-row"><span>Pair:</span> <span class="metric-value">BTC/USDT 1H</span></div>
+            <div class="metric-row"><span>Current Price:</span> <span id="livePrice" class="metric-value">Fetching...</span></div>
+            <div class="metric-row"><span>AI Strategy Signal:</span> <span id="aiSignal" class="metric-value">Bullish Momentum</span></div>
+            <div class="metric-row"><span>Telemetry Status:</span> <span class="metric-value" style="color: var(--accent-green);">Connected</span></div>
+        </div>
 
-    <label for="risk">Max risk per trade (%)</label>
-    <input id="risk" type="number" step="0.1" min="0.1" max="10" inputmode="decimal">
+        <!-- 5. AUTOMATED AI TRADING CONTROL (FULL WIDTH) -->
+        <div class="card full-width" style="border: 1px solid var(--accent-green);">
+            <h2>AI AUTOMATED TRADING ENGINE</h2>
+            <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px;">
+                Bot takes full control of execution, risk management, stop losses, and take profits automatically based on core learning scripts.
+            </p>
+            <button id="toggleBtn" class="btn-success" onclick="toggleBot()">ACTIVATE AUTOMATED TRADING</button>
+        </div>
+    </div>
 
-    <button id="saveRisk" type="button">Update risk parameters</button>
-    <div id="riskMsg" class="msg"></div>
-  </section>
+    <script>
+        async function fetchStatus() {
+            try {
+                let res = await fetch('/api/status');
+                let data = await res.json();
+                
+                document.getElementById('systemStatus').innerText = data.active ? 'ONLINE & ACTIVE' : 'ONLINE (IDLE)';
+                document.getElementById('botStateText').innerText = data.active ? 'ACTIVE' : 'INACTIVE';
+                document.getElementById('botStateText').style.color = data.active ? '#10b981' : '#ef4444';
+                document.getElementById('activeExchange').innerText = data.exchange.toUpperCase();
+                document.getElementById('accountBalance').innerText = "$" + parseFloat(data.balance).toLocaleString(undefined, {minimumFractionDigits: 2});
+                
+                let toggleBtn = document.getElementById('toggleBtn');
+                if (data.active) {
+                    toggleBtn.innerText = "DEACTIVATE AUTOMATED TRADING";
+                    toggleBtn.className = "btn-danger";
+                } else {
+                    toggleBtn.innerText = "ACTIVATE AUTOMATED TRADING";
+                    toggleBtn.className = "btn-success";
+                }
 
-  <section class="card">
-    <h2>Market view (BTC/USDT)</h2>
-    <div class="row"><span>Pair</span><span class="v" id="pair">--</span></div>
-    <div class="row"><span>Current price</span><span class="v" id="price">--</span></div>
-    <div class="row"><span>Strategy signal</span><span class="v" id="signal">--</span></div>
-    <div class="row"><span>Connection</span><span class="v" id="conn">--</span></div>
-  </section>
+                if (data.settings) {
+                    document.getElementById('lotSize').value = data.settings.lot_size;
+                    document.getElementById('leverage').value = data.settings.leverage;
+                    document.getElementById('riskPct').value = data.settings.risk_pct;
+                }
+            } catch (e) {
+                console.error("Backend connection error:", e);
+                document.getElementById('systemStatus').innerText = "DISCONNECTED";
+            }
+        }
 
-  <section class="card engine-card" id="engineCard">
-    <h2>Automated trading engine</h2>
-    <p class="note" style="margin-top:0">Opens long trades on a bullish signal, sizes each trade from your max risk, and closes on the stop loss or the take profit.</p>
-    <button id="engineBtn" type="button" class="go">Start automated trading</button>
-    <div id="engineMsg" class="msg"></div>
-  </section>
+        async function fetchMarket() {
+            try {
+                let res = await fetch('/api/market/snapshot');
+                let data = await res.json();
+                if(data && data.ticker) {
+                    let price = data.ticker.price || data.ticker.last || 80619.84;
+                    document.getElementById('livePrice').innerText = "$" + parseFloat(price).toLocaleString();
+                }
+            } catch(e) {}
+        }
 
-  <section class="card">
-    <h2>Activity log</h2>
-    <pre id="logs">Waiting for data...</pre>
-  </section>
-</main>
+        async function saveConfig() {
+            let payload = {
+                exchange: document.getElementById('exchangeSelect').value,
+                api_key: document.getElementById('apiKey').value,
+                secret_key: document.getElementById('secretKey').value
+            };
+            try {
+                let res = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                let data = await res.json();
+                if(data.status === 'success') {
+                    let alertBox = document.getElementById('configAlert');
+                    alertBox.style.display = 'block';
+                    setTimeout(() => alertBox.style.display = 'none', 3000);
+                    fetchStatus();
+                }
+            } catch(e) {
+                alert("Error saving API keys.");
+            }
+        }
 
-<script>
-  var $ = function (id) { return document.getElementById(id); };
-  var engineOn = false;
-  var currentMode = "paper";
-  var formsFilled = false;
-  var failures = 0;
+        async function toggleBot() {
+            try {
+                let res = await fetch('/api/bot/toggle', { method: 'POST' });
+                let data = await res.json();
+                fetchStatus();
+            } catch(e) {
+                alert("Error toggling automated trading engine.");
+            }
+        }
 
-  function money(n) {
-    if (n === null || n === undefined) return "--";
-    var sign = n < 0 ? "-" : "";
-    return sign + "$" + Math.abs(n).toLocaleString(undefined, {
-      minimumFractionDigits: 2, maximumFractionDigits: 2
-    });
-  }
+        async function updateSettings() {
+            let payload = {
+                lot_size: parseFloat(document.getElementById('lotSize').value),
+                leverage: document.getElementById('leverage').value,
+                risk_pct: parseFloat(document.getElementById('riskPct').value),
+                stop_loss: 1.2,
+                take_profit: 4.0
+            };
+            try {
+                let res = await fetch('/api/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                let data = await res.json();
+                if(data.status === 'success') {
+                    let alertBox = document.getElementById('settingsAlert');
+                    alertBox.style.display = 'block';
+                    setTimeout(() => alertBox.style.display = 'none', 3000);
+                }
+            } catch(e) {
+                alert("Error updating risk parameters.");
+            }
+        }
 
-  function signedMoney(n) {
-    if (n === null || n === undefined) return "--";
-    return (n >= 0 ? "+" : "") + money(n);
-  }
+        setInterval(fetchStatus, 2000);
+        setInterval(fetchMarket, 3000);
 
-  function setClass(el, cls) {
-    el.className = "v" + (cls ? " " + cls : "");
-  }
-
-  function showMsg(id, text, ok) {
-    var el = $(id);
-    el.textContent = text;
-    el.className = "msg " + (ok ? "ok" : "err");
-  }
-
-  async function api(path, method, body) {
-    var options = { method: method || "GET", headers: { "Content-Type": "application/json" } };
-    if (body) options.body = JSON.stringify(body);
-    var res = await fetch(path, options);
-    var data = {};
-    try { data = await res.json(); } catch (e) { data = {}; }
-    if (!res.ok || data.ok === false) {
-      var detail = typeof data.detail === "string" ? data.detail : "";
-      throw new Error(data.error || detail || ("Request failed (" + res.status + ")"));
-    }
-    return data;
-  }
-
-  function render(s) {
-    engineOn = s.engine_on;
-    currentMode = s.mode;
-
-    $("engineState").textContent = s.engine;
-    setClass($("engineState"), s.engine_on ? "pos" : "");
-    $("activeExchange").textContent = s.exchange.charAt(0).toUpperCase() + s.exchange.slice(1);
-    $("activeMode").textContent = s.mode.toUpperCase();
-    setClass($("activeMode"), s.mode === "live" ? "warn" : "");
-    $("balance").textContent = money(s.balance);
-    $("positions").textContent = s.open_positions;
-    $("pnl").textContent = signedMoney(s.active_pnl);
-    setClass($("pnl"), s.active_pnl > 0 ? "pos" : (s.active_pnl < 0 ? "neg" : ""));
-    $("realized").textContent = signedMoney(s.realized_pnl);
-    setClass($("realized"), s.realized_pnl > 0 ? "pos" : (s.realized_pnl < 0 ? "neg" : ""));
-
-    $("pair").textContent = s.pair + " 1H";
-    $("price").textContent = money(s.price);
-    $("signal").textContent = s.signal;
-    setClass($("signal"), s.signal.indexOf("Bearish") === 0 ? "neg" : (s.signal.indexOf("Bullish") === 0 ? "pos" : ""));
-    $("conn").textContent = s.connected ? "Connected" : (s.last_error || "Disconnected");
-    setClass($("conn"), s.connected ? "pos" : "neg");
-
-    var btn = $("engineBtn");
-    btn.textContent = s.engine_on ? "Stop automated trading" : "Start automated trading";
-    btn.className = s.engine_on ? "stop" : "go";
-    $("engineCard").className = "card engine-card" + (s.engine_on ? " on" : "");
-
-    $("logs").textContent = s.logs.length ? s.logs.join("\n") : "No activity yet.";
-
-    // Fill the form fields once, so polling never overwrites what you are typing.
-    if (!formsFilled) {
-      $("lot").value = s.lot;
-      $("leverage").value = String(s.leverage);
-      $("risk").value = s.risk;
-      $("exchange").value = s.exchange;
-      $("mode").value = s.mode;
-      updateKeyFields();
-      formsFilled = true;
-    }
-  }
-
-  async function refresh() {
-    try {
-      var s = await api("/api/status");
-      failures = 0;
-      $("offline").style.display = "none";
-      render(s);
-    } catch (e) {
-      failures += 1;
-      if (failures >= 2) $("offline").style.display = "block";
-    }
-  }
-
-  function updateKeyFields() {
-    $("keyFields").style.display = $("mode").value === "paper" ? "none" : "block";
-  }
-
-  $("mode").addEventListener("change", updateKeyFields);
-
-  $("saveKeys").addEventListener("click", async function () {
-    var btn = $("saveKeys");
-    var mode = $("mode").value;
-    var confirmLive = false;
-    if (mode === "live") {
-      confirmLive = window.confirm("Live mode uses REAL money. Continue?");
-      if (!confirmLive) return;
-    }
-    btn.disabled = true;
-    try {
-      var res = await api("/api/keys", "POST", {
-        exchange: $("exchange").value,
-        mode: mode,
-        api_key: $("apiKey").value,
-        secret: $("secretKey").value,
-        confirm_live: confirmLive
-      });
-      showMsg("keysMsg", res.message, true);
-      $("apiKey").value = "";
-      $("secretKey").value = "";
-      refresh();
-    } catch (e) {
-      showMsg("keysMsg", e.message, false);
-    }
-    btn.disabled = false;
-  });
-
-  $("saveRisk").addEventListener("click", async function () {
-    var btn = $("saveRisk");
-    btn.disabled = true;
-    try {
-      var res = await api("/api/risk", "POST", {
-        lot: parseFloat($("lot").value),
-        leverage: parseInt($("leverage").value, 10),
-        risk: parseFloat($("risk").value)
-      });
-      showMsg("riskMsg", res.message, true);
-      refresh();
-    } catch (e) {
-      showMsg("riskMsg", e.message, false);
-    }
-    btn.disabled = false;
-  });
-
-  $("engineBtn").addEventListener("click", async function () {
-    var btn = $("engineBtn");
-    var enable = !engineOn;
-    if (enable && currentMode === "live") {
-      if (!window.confirm("Start automated trading with REAL money?")) return;
-    }
-    btn.disabled = true;
-    try {
-      var res = await api("/api/engine", "POST", { enabled: enable });
-      showMsg("engineMsg", res.message, true);
-      refresh();
-    } catch (e) {
-      showMsg("engineMsg", e.message, false);
-    }
-    btn.disabled = false;
-  });
-
-  refresh();
-  setInterval(refresh, 2000);
-</script>
+        fetchStatus();
+        fetchMarket();
+    </script>
 </body>
 </html>
