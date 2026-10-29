@@ -17,7 +17,7 @@ logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
 app = FastAPI(
     title="Mahlabahlasele 4.0 Pro Engine",
-    description="Backend API and Multi-Broker Controller",
+    description="Backend API and True-Balance Telemetry Engine",
     version="4.0"
 )
 
@@ -83,10 +83,12 @@ class SettingsPayload(BaseModel):
     stop_loss: float
     take_profit: float
 
+# Strict True-Balance Extraction Telemetry Engine
 def query_broker_telemetry(api_key: str, secret_key: str, exchange: str):
     exchange_norm = exchange.lower().strip()
     
     try:
+        # 1. Binance / Binance Testnet True Balance Parser
         if "binance" in exchange_norm:
             endpoints = ["https://testnet.binance.vision", "https://api.binance.com"]
             for base_url in endpoints:
@@ -108,15 +110,25 @@ def query_broker_telemetry(api_key: str, secret_key: str, exchange: str):
                         data = res.json()
                         balances = data.get("balances", [])
                         total_usdt = 0.0
-                        for b in balances:
-                            if b["asset"] in ["USDT", "BUSD", "USDC"]:
-                                total_usdt += float(b["free"]) + float(b["locked"])
                         
+                        # Accumulate actual asset balance across common quote currencies
+                        for b in balances:
+                            asset_name = b.get("asset", "").upper()
+                            if asset_name in ["USDT", "BUSD", "USDC", "USD"]:
+                                free_val = float(b.get("free", 0.0))
+                                locked_val = float(b.get("locked", 0.0))
+                                total_usdt += (free_val + locked_val)
+                        
+                        # If account returned valid JSON structure
                         BOT_STATE["active_endpoint"] = base_url
-                        return True, total_usdt, 0
-                except Exception:
+                        return True, float(total_usdt), 0
+                    else:
+                        print(f"[DEBUG] Binance telemetry parse error on {base_url}: Status {res.status_code} - {res.text}")
+                except Exception as ex:
+                    print(f"[DEBUG] Binance connection exception on {base_url}: {ex}")
                     continue
 
+        # 2. Bybit V5 True Balance Parser
         elif "bybit" in exchange_norm:
             base_url = "https://api-testnet.bybit.com"
             timestamp = str(int(time.time() * 1000))
@@ -133,10 +145,12 @@ def query_broker_telemetry(api_key: str, secret_key: str, exchange: str):
             res = requests.get(f"{base_url}/v5/account/wallet-balance?accountType=UNIFIED", headers=headers, timeout=6)
             if res.status_code == 200:
                 result = res.json().get("result", {}).get("list", [])
-                total_usdt = float(result[0].get("totalEquity", 0.0)) if result else 0.0
-                BOT_STATE["active_endpoint"] = base_url
-                return True, total_usdt, 0
+                if result:
+                    total_equity = float(result[0].get("totalEquity", 0.0))
+                    BOT_STATE["active_endpoint"] = base_url
+                    return True, total_equity, 0
 
+        # 3. Alpaca Paper Trading True Balance Parser
         elif "alpaca" in exchange_norm:
             base_url = "https://paper-api.alpaca.markets"
             headers = {
@@ -147,16 +161,13 @@ def query_broker_telemetry(api_key: str, secret_key: str, exchange: str):
             res = requests.get(f"{base_url}/v2/account", headers=headers, timeout=6)
             if res.status_code == 200:
                 data = res.json()
-                total_usdt = float(data.get("equity", 0.0))
+                equity = float(data.get("equity", 0.0))
                 BOT_STATE["active_endpoint"] = base_url
-                return True, total_usdt, 0
-
-        # Fallback authorization for valid key strings if network handshake requires specific permissions
-        if len(api_key.strip()) > 10 and len(secret_key.strip()) > 10:
-            return True, 0.0, 0
+                return True, equity, 0
 
         return False, 0.0, 0
     except Exception as e:
+        print(f"[CRITICAL] Telemetry balance extraction failure: {e}")
         return False, 0.0, 0
 
 @app.get("/")
@@ -223,6 +234,7 @@ def save_api_keys(payload: ApiKeysPayload):
     if not payload.api_key or not payload.secret_key:
         raise HTTPException(status_code=400, detail="API Key and Secret Key are required.")
     
+    # Strictly query broker for true balance during handshake
     success, balance, _ = query_broker_telemetry(payload.api_key, payload.secret_key, payload.exchange)
     
     if success:
@@ -233,12 +245,12 @@ def save_api_keys(payload: ApiKeysPayload):
         BOT_STATE["initial_balance"] = balance
         BOT_STATE["current_balance"] = balance
         
-        add_log(f"Connection authorized for {payload.exchange.upper()}. Balance: ${balance:,.2f}", "SUCCESS")
+        add_log(f"API Authorized for {payload.exchange.upper()}. Verified True Balance: ${balance:,.2f}", "SUCCESS")
         return {"status": "success", "message": f"Connected to {payload.exchange.upper()}."}
     else:
         BOT_STATE["is_connected"] = False
-        add_log(f"Authentication failed for {payload.exchange.upper()}.", "ERROR")
-        raise HTTPException(status_code=400, detail="Connection failed. Verify API credentials.")
+        add_log(f"Authentication failed for {payload.exchange.upper()}. Could not read account balance.", "ERROR")
+        raise HTTPException(status_code=400, detail="Connection failed. Verify API credentials and balance permissions.")
 
 @app.post("/api/bot/toggle")
 def toggle_auto_trading():
@@ -246,9 +258,10 @@ def toggle_auto_trading():
         add_log("Activation blocked: API connection not established.", "ERROR")
         raise HTTPException(status_code=400, detail="Cannot activate. Connect valid API keys first.")
     
+    # Strict Risk Gate: Prevent trading execution if true balance is zero or unverified
     if BOT_STATE["current_balance"] <= 0:
-        add_log("Trading restricted: Account balance is $0.00 or uninitialized.", "WARNING")
-        raise HTTPException(status_code=400, detail="Trading restricted. Account balance must be greater than $0.00 to execute orders.")
+        add_log("Trading execution blocked: Account balance is $0.00. Real capital required for risk management.", "WARNING")
+        raise HTTPException(status_code=400, detail="Trading restricted. Account balance must be greater than $0.00.")
 
     BOT_STATE["is_active"] = not BOT_STATE["is_active"]
     status_str = "ACTIVE" if BOT_STATE["is_active"] else "INACTIVE"
@@ -300,7 +313,9 @@ def evaluate_ai_strategy(current_price: float):
         
     prev_price = PRICE_HISTORY[-2] if len(PRICE_HISTORY) > 1 else current_price
     momentum_delta = current_price - prev_price
-    add_log(f"AI Telemetry Sync ({BOT_STATE['exchange'].upper()}): Balance: ${BOT_STATE['current_balance']:,.2f}", "INFO")
+    # Dynamic risk management calculation based on true live balance telemetry
+    allocated_risk = BOT_STATE["current_balance"] * (BOT_STATE["risk_pct"] / 100.0)
+    add_log(f"AI Risk Engine ({BOT_STATE['exchange'].upper()}): Balance=${BOT_STATE['current_balance']:,.2f} | Risk Exposure=${allocated_risk:,.2f}", "INFO")
 
 async def background_trading_engine():
     while True:
@@ -310,7 +325,7 @@ async def background_trading_engine():
             if success:
                 BOT_STATE["current_balance"] = current_bal
                 
-            if BOT_STATE["is_active"]:
+            if BOT_STATE["is_active"] and BOT_STATE["current_balance"] > 0:
                 import random
                 fluctuation = round(random.uniform(-5.0, 5.0), 2)
                 new_price = PRICE_HISTORY[-1] + fluctuation
@@ -321,5 +336,5 @@ async def background_trading_engine():
 
 @app.on_event("startup")
 async def startup_event():
-    add_log("Mahlabahlasele 4.0 Pro Engine initialized with Flexible Connection Gate.")
+    add_log("Mahlabahlasele 4.0 Pro True-Balance Engine initialized.")
     asyncio.create_task(background_trading_engine())
