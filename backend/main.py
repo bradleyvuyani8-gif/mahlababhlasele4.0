@@ -1,5 +1,4 @@
 import os
-import json
 import logging
 import asyncio
 import time
@@ -12,6 +11,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel
+
+from backend.services.learning_service import execute_strategy_pipeline
 
 logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
@@ -28,71 +29,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# ==========================================
-# 1. PERSISTENT SHARED STORAGE MEMORY CLASS
-# ==========================================
-class PersistentMemory:
-    def __init__(self, filename="mahlabahlasele_memory.json"):
-        # Points directly to the Android Download folder via Termux shared storage
-        shared_dir = os.path.expanduser("~/storage/shared/Download")
-        
-        # Fallback to local termux directory if shared storage isn't set up yet
-        if not os.path.exists(shared_dir):
-            shared_dir = "data"
-            
-        self.filepath = os.path.join(shared_dir, filename)
-        self._ensure_directory()
-        self.memory = self.load_memory()
-
-    def _ensure_directory(self):
-        directory = os.path.dirname(self.filepath)
-        if directory and not os.path.exists(directory):
-            os.makedirs(directory, exist_ok=True)
-
-    def load_memory(self):
-        """Loads past learning data and trade outcomes from shared storage."""
-        if os.path.exists(self.filepath):
-            try:
-                with open(self.filepath, "r") as f:
-                    return json.load(f)
-            except Exception as e:
-                print(f"Error loading memory: {e}")
-                
-        # Default baseline memory structure if file doesn't exist
-        return {
-            "total_trades": 0,
-            "successful_trades": 0,
-            "failed_trades": 0,
-            "mistakes_log": [],
-            "learned_weights": {}
-        }
-
-    def save_memory(self):
-        """Writes learning state directly to your phone's file manager."""
-        try:
-            with open(self.filepath, "w") as f:
-                json.dump(self.memory, f, indent=4)
-        except Exception as e:
-            print(f"Error saving memory: {e}")
-
-    def record_trade_outcome(self, trade_type, pnl, market_conditions):
-        """Logs a win or loss, updating the bot's historical record."""
-        self.memory["total_trades"] += 1
-        
-        if pnl > 0:
-            self.memory["successful_trades"] += 1
-        else:
-            self.memory["failed_trades"] += 1
-            self.memory["mistakes_log"].append({
-                "trade_type": trade_type,
-                "pnl": pnl,
-                "conditions": market_conditions
-            })
-            
-        self.save_memory()
-
-bot_memory = PersistentMemory()
 
 BOT_STATE = {
     "is_active": False,
@@ -148,9 +84,6 @@ class SettingsPayload(BaseModel):
     stop_loss: float
     take_profit: float
 
-# ==========================================
-# REAL OPEN POSITIONS FETCHERS FOR BROKERS
-# ==========================================
 def fetch_real_positions(exchange: str, api_key: str, secret_key: str) -> list:
     clean_key = "".join(api_key.split())
     clean_secret = "".join(secret_key.split())
@@ -211,7 +144,6 @@ def auto_detect_and_query_broker(api_key: str, secret_key: str):
     clean_key = "".join(api_key.split())
     clean_secret = "".join(secret_key.split())
     
-    # 1. Probe Binance Testnet & Mainnet
     binance_endpoints = ["https://testnet.binance.vision/api", "https://api.binance.com/api"]
     for base_url in binance_endpoints:
         try:
@@ -238,7 +170,6 @@ def auto_detect_and_query_broker(api_key: str, secret_key: str):
         except Exception as e:
             add_log(f"Binance probe exception: {e}", "DEBUG")
 
-    # 2. Probe Bybit Unified Testnet
     try:
         base_url = "https://api-testnet.bybit.com"
         timestamp = str(int(time.time() * 1000))
@@ -263,7 +194,6 @@ def auto_detect_and_query_broker(api_key: str, secret_key: str):
     except Exception as e:
         add_log(f"Bybit probe exception: {e}", "DEBUG")
 
-    # 3. Probe Alpaca Paper Trading
     try:
         base_url = "https://paper-api.alpaca.markets"
         headers = {
@@ -413,4 +343,46 @@ def get_positions():
     
     positions_list = []
     for pos in real_pos:
-        positions_
+        positions_list.append({
+            "symbol": pos.get("symbol", "BTC/USDT"),
+            "type": pos.get("side", "LONG").upper(),
+            "amount": float(pos.get("qty", pos.get("size", BOT_STATE["lot_size"]))),
+            "pnl": f"${float(pos.get('unrealized_pl', 0.0)):,.2f}",
+            "status": "OPEN"
+        })
+        
+    return {"positions": positions_list}
+
+async def background_trading_engine():
+    while True:
+        await asyncio.sleep(15)
+        if BOT_STATE["is_connected"]:
+            detected_exchange, current_bal, pos_count = auto_detect_and_query_broker(BOT_STATE["api_key"], BOT_STATE["secret_key"])
+            if detected_exchange:
+                BOT_STATE["current_balance"] = current_bal
+                BOT_STATE["open_positions_count"] = pos_count
+                
+            if BOT_STATE["is_active"] and BOT_STATE["current_balance"] > 0:
+                import random
+                fluctuation = round(random.uniform(-5.0, 5.0), 2)
+                new_price = PRICE_HISTORY[-1] + fluctuation
+                PRICE_HISTORY.append(new_price)
+                if len(PRICE_HISTORY) > 20:
+                    PRICE_HISTORY.pop(0)
+                
+                decision = execute_strategy_pipeline(
+                    PRICE_HISTORY, 
+                    BOT_STATE["current_balance"], 
+                    BOT_STATE["risk_pct"],
+                    BOT_STATE["exchange"]
+                )
+                
+                if decision["action"] in ["BUY", "SELL"]:
+                    add_log(f"Trade Signal Executed ({decision['action']}): {decision['reason']}", "SUCCESS")
+                else:
+                    add_log(f"Strategy Evaluated: {decision['reason']}", "INFO")
+
+@app.on_event("startup")
+async def startup_event():
+    add_log("Mahlabahlasele 4.0 Pro Engine initialized with Multi-Broker Auto-Discovery.", "SUCCESS")
+    asyncio.create_task(background_trading_engine())
