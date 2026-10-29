@@ -89,7 +89,7 @@ def fetch_exchange_data(exchange: str, api_key: str, secret_key: str):
     clean_secret = "".join(secret_key.split())
     
     balance = BOT_STATE["current_balance"]
-    positions_count = 0
+    positions_count = BOT_STATE["open_positions_count"]
 
     if exchange == "alpaca":
         try:
@@ -155,7 +155,6 @@ def auto_detect_and_query_broker(api_key: str, secret_key: str):
     clean_key = "".join(api_key.split())
     clean_secret = "".join(secret_key.split())
     
-    # 1. Probe Binance Testnet & Mainnet
     binance_endpoints = ["https://testnet.binance.vision/api", "https://api.binance.com/api"]
     for base_url in binance_endpoints:
         try:
@@ -179,7 +178,6 @@ def auto_detect_and_query_broker(api_key: str, secret_key: str):
         except Exception as e:
             pass
 
-    # 2. Probe Bybit Unified Testnet
     try:
         base_url = "https://api-testnet.bybit.com"
         timestamp = str(int(time.time() * 1000))
@@ -203,7 +201,6 @@ def auto_detect_and_query_broker(api_key: str, secret_key: str):
     except Exception as e:
         pass
 
-    # 3. Probe Alpaca Paper Trading
     try:
         base_url = "https://paper-api.alpaca.markets"
         headers = {
@@ -241,6 +238,7 @@ def get_bot_status():
             "balance": "...",
             "pnl": "...",
             "positions_count": "...",
+            "strategy_status": "Awaiting Connection",
             "settings": {
                 "lot_size": BOT_STATE["lot_size"],
                 "leverage": BOT_STATE["leverage"],
@@ -252,6 +250,7 @@ def get_bot_status():
 
     calculated_pnl = BOT_STATE["current_balance"] - BOT_STATE["initial_balance"]
     pnl_str = f"+${calculated_pnl:,.2f}" if calculated_pnl >= 0 else f"-${abs(calculated_pnl):,.2f}"
+    strategy_text = "Active & Monitoring" if BOT_STATE["is_active"] else "Paused / Standby"
 
     return {
         "active": BOT_STATE["is_active"],
@@ -260,6 +259,7 @@ def get_bot_status():
         "balance": f"${BOT_STATE['current_balance']:,.2f}",
         "pnl": pnl_str,
         "positions_count": BOT_STATE["open_positions_count"],
+        "strategy_status": strategy_text,
         "settings": {
             "lot_size": BOT_STATE["lot_size"],
             "leverage": BOT_STATE["leverage"],
@@ -355,13 +355,13 @@ async def background_trading_engine():
     while True:
         await asyncio.sleep(15)
         if BOT_STATE["is_connected"]:
-            # Uses saved session credentials directly without re-probing or logging out
             current_bal, pos_count = fetch_exchange_data(
                 BOT_STATE["exchange"], 
                 BOT_STATE["api_key"], 
                 BOT_STATE["secret_key"]
             )
             BOT_STATE["current_balance"] = current_bal
+            BOT_STATE["open_positions_count"] = pos_count
             
             if BOT_STATE["is_active"] and BOT_STATE["current_balance"] > 0:
                 import random
