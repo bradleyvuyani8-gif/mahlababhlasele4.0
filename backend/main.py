@@ -83,8 +83,11 @@ class SettingsPayload(BaseModel):
     stop_loss: float
     take_profit: float
 
-# Strict True-Balance Extraction Telemetry Engine
+# Strict Sanitized Telemetry Engine with Header Validation
 def query_broker_telemetry(api_key: str, secret_key: str, exchange: str):
+    # Sanitize inputs to strip accidental newlines, tabs, or whitespace from copy-paste
+    clean_key = "".join(api_key.split())
+    clean_secret = "".join(secret_key.split())
     exchange_norm = exchange.lower().strip()
     
     try:
@@ -97,12 +100,15 @@ def query_broker_telemetry(api_key: str, secret_key: str, exchange: str):
                     query_string = f"timestamp={timestamp}&recvWindow=60000"
                     
                     signature = hmac.new(
-                        secret_key.strip().encode('utf-8'),
+                        clean_secret.encode('utf-8'),
                         query_string.encode('utf-8'),
                         hashlib.sha256
                     ).hexdigest()
                     
-                    headers = {"X-MBX-APIKEY": api_key.strip()}
+                    headers = {
+                        "X-MBX-APIKEY": clean_key,
+                        "Accept": "application/json"
+                    }
                     url = f"{base_url}/api/v3/account?{query_string}&signature={signature}"
                     
                     res = requests.get(url, headers=headers, timeout=6)
@@ -111,7 +117,6 @@ def query_broker_telemetry(api_key: str, secret_key: str, exchange: str):
                         balances = data.get("balances", [])
                         total_usdt = 0.0
                         
-                        # Accumulate actual asset balance across common quote currencies
                         for b in balances:
                             asset_name = b.get("asset", "").upper()
                             if asset_name in ["USDT", "BUSD", "USDC", "USD"]:
@@ -119,7 +124,6 @@ def query_broker_telemetry(api_key: str, secret_key: str, exchange: str):
                                 locked_val = float(b.get("locked", 0.0))
                                 total_usdt += (free_val + locked_val)
                         
-                        # If account returned valid JSON structure
                         BOT_STATE["active_endpoint"] = base_url
                         return True, float(total_usdt), 0
                     else:
@@ -133,10 +137,10 @@ def query_broker_telemetry(api_key: str, secret_key: str, exchange: str):
             base_url = "https://api-testnet.bybit.com"
             timestamp = str(int(time.time() * 1000))
             recv_window = "5000"
-            payload_str = f"{timestamp}{api_key.strip()}{recv_window}"
-            signature = hmac.new(secret_key.strip().encode('utf-8'), payload_str.encode('utf-8'), hashlib.sha256).hexdigest()
+            payload_str = f"{timestamp}{clean_key}{recv_window}"
+            signature = hmac.new(clean_secret.encode('utf-8'), payload_str.encode('utf-8'), hashlib.sha256).hexdigest()
             headers = {
-                "X-BAPI-API-KEY": api_key.strip(),
+                "X-BAPI-API-KEY": clean_key,
                 "X-BAPI-SIGN": signature,
                 "X-BAPI-TIMESTAMP": timestamp,
                 "X-BAPI-RECV-WINDOW": recv_window,
@@ -154,8 +158,8 @@ def query_broker_telemetry(api_key: str, secret_key: str, exchange: str):
         elif "alpaca" in exchange_norm:
             base_url = "https://paper-api.alpaca.markets"
             headers = {
-                "APCA-API-KEY-ID": api_key.strip(),
-                "APCA-API-SECRET-KEY": secret_key.strip(),
+                "APCA-API-KEY-ID": clean_key,
+                "APCA-API-SECRET-KEY": clean_secret,
                 "accept": "application/json"
             }
             res = requests.get(f"{base_url}/v2/account", headers=headers, timeout=6)
@@ -234,12 +238,11 @@ def save_api_keys(payload: ApiKeysPayload):
     if not payload.api_key or not payload.secret_key:
         raise HTTPException(status_code=400, detail="API Key and Secret Key are required.")
     
-    # Strictly query broker for true balance during handshake
     success, balance, _ = query_broker_telemetry(payload.api_key, payload.secret_key, payload.exchange)
     
     if success:
-        BOT_STATE["api_key"] = payload.api_key
-        BOT_STATE["secret_key"] = payload.secret_key
+        BOT_STATE["api_key"] = "".join(payload.api_key.split())
+        BOT_STATE["secret_key"] = "".join(payload.secret_key.split())
         BOT_STATE["exchange"] = payload.exchange.lower().strip()
         BOT_STATE["is_connected"] = True
         BOT_STATE["initial_balance"] = balance
@@ -249,8 +252,8 @@ def save_api_keys(payload: ApiKeysPayload):
         return {"status": "success", "message": f"Connected to {payload.exchange.upper()}."}
     else:
         BOT_STATE["is_connected"] = False
-        add_log(f"Authentication failed for {payload.exchange.upper()}. Could not read account balance.", "ERROR")
-        raise HTTPException(status_code=400, detail="Connection failed. Verify API credentials and balance permissions.")
+        add_log(f"Authentication failed for {payload.exchange.upper()}. Check key permissions or IP restrictions.", "ERROR")
+        raise HTTPException(status_code=400, detail="Connection failed. Verify API credentials.")
 
 @app.post("/api/bot/toggle")
 def toggle_auto_trading():
@@ -258,9 +261,8 @@ def toggle_auto_trading():
         add_log("Activation blocked: API connection not established.", "ERROR")
         raise HTTPException(status_code=400, detail="Cannot activate. Connect valid API keys first.")
     
-    # Strict Risk Gate: Prevent trading execution if true balance is zero or unverified
     if BOT_STATE["current_balance"] <= 0:
-        add_log("Trading execution blocked: Account balance is $0.00. Real capital required for risk management.", "WARNING")
+        add_log("Trading execution blocked: Account balance is $0.00.", "WARNING")
         raise HTTPException(status_code=400, detail="Trading restricted. Account balance must be greater than $0.00.")
 
     BOT_STATE["is_active"] = not BOT_STATE["is_active"]
@@ -313,7 +315,6 @@ def evaluate_ai_strategy(current_price: float):
         
     prev_price = PRICE_HISTORY[-2] if len(PRICE_HISTORY) > 1 else current_price
     momentum_delta = current_price - prev_price
-    # Dynamic risk management calculation based on true live balance telemetry
     allocated_risk = BOT_STATE["current_balance"] * (BOT_STATE["risk_pct"] / 100.0)
     add_log(f"AI Risk Engine ({BOT_STATE['exchange'].upper()}): Balance=${BOT_STATE['current_balance']:,.2f} | Risk Exposure=${allocated_risk:,.2f}", "INFO")
 
@@ -336,5 +337,5 @@ async def background_trading_engine():
 
 @app.on_event("startup")
 async def startup_event():
-    add_log("Mahlabahlasele 4.0 Pro True-Balance Engine initialized.")
+    add_log("Mahlabahlasele 4.0 Pro Sanitized Engine initialized.")
     asyncio.create_task(background_trading_engine())
