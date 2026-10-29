@@ -17,7 +17,7 @@ logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
 app = FastAPI(
     title="Mahlabahlasele 4.0 Pro Engine",
-    description="Multi-Broker True-Balance Telemetry Engine",
+    description="Multi-Broker True-Balance Telemetry Engine with Time Sync",
     version="4.0"
 )
 
@@ -83,19 +83,23 @@ class SettingsPayload(BaseModel):
     stop_loss: float
     take_profit: float
 
-# Universal Multi-Broker True-Balance Telemetry Engine
+# Universal Multi-Broker True-Balance Telemetry Engine with Server Time Sync
 def query_broker_telemetry(api_key: str, secret_key: str, exchange: str):
     clean_key = "".join(api_key.split())
     clean_secret = "".join(secret_key.split())
     exchange_norm = exchange.lower().strip()
     
     try:
-        # 1. Binance / Binance Testnet True Balance Parser
+        # 1. Binance / Binance Testnet True Balance Parser with Time Synchronization
         if "binance" in exchange_norm:
             endpoints = ["https://testnet.binance.vision/api", "https://api.binance.com/api"]
             for base_url in endpoints:
                 try:
-                    timestamp = int(time.time() * 1000)
+                    # Sync server time to prevent -2015 timestamp drift errors
+                    time_res = requests.get(f"{base_url}/v3/time", timeout=4)
+                    server_time = int(time_res.json().get("serverTime", time.time() * 1000)) if time_res.status_code == 200 else int(time.time() * 1000)
+                    
+                    timestamp = server_time
                     query_string = f"timestamp={timestamp}&recvWindow=60000"
                     
                     signature = hmac.new(
@@ -126,9 +130,9 @@ def query_broker_telemetry(api_key: str, secret_key: str, exchange: str):
                         BOT_STATE["active_endpoint"] = base_url
                         return True, float(total_usdt), 0
                     else:
-                        print(f"[DEBUG] Binance telemetry parse error on {base_url}: Status {res.status_code} - {res.text}")
+                        print(f"[DEBUG] Binance telemetry error on {base_url}: Status {res.status_code} - {res.text}")
                 except Exception as ex:
-                    print(f"[DEBUG] Binance connection exception on {base_url}: {ex}")
+                    print(f"[DEBUG] Binance exception on {base_url}: {ex}")
                     continue
 
         # 2. Bybit V5 True Balance Parser
@@ -167,10 +171,6 @@ def query_broker_telemetry(api_key: str, secret_key: str, exchange: str):
                 equity = float(data.get("equity", 0.0))
                 BOT_STATE["active_endpoint"] = base_url
                 return True, equity, 0
-
-        # Flexible fallback connection for valid credential lengths if network handshake is pending
-        if len(clean_key) > 10 and len(clean_secret) > 10:
-            return True, 0.0, 0
 
         return False, 0.0, 0
     except Exception as e:
@@ -243,7 +243,7 @@ def save_api_keys(payload: ApiKeysPayload):
     
     success, balance, _ = query_broker_telemetry(payload.api_key, payload.secret_key, payload.exchange)
     
-    if success or (len(payload.api_key.strip()) > 10 and len(payload.secret_key.strip()) > 10):
+    if success:
         BOT_STATE["api_key"] = "".join(payload.api_key.split())
         BOT_STATE["secret_key"] = "".join(payload.secret_key.split())
         BOT_STATE["exchange"] = payload.exchange.lower().strip()
@@ -251,12 +251,12 @@ def save_api_keys(payload: ApiKeysPayload):
         BOT_STATE["initial_balance"] = balance
         BOT_STATE["current_balance"] = balance
         
-        add_log(f"API Authorized for {payload.exchange.upper()}. Verified Balance: ${balance:,.2f}", "SUCCESS")
+        add_log(f"API Authorized for {payload.exchange.upper()}. Verified True Balance: ${balance:,.2f}", "SUCCESS")
         return {"status": "success", "message": f"Connected to {payload.exchange.upper()}."}
     else:
         BOT_STATE["is_connected"] = False
-        add_log(f"Authentication failed for {payload.exchange.upper()}. Check key permissions.", "ERROR")
-        raise HTTPException(status_code=400, detail="Connection failed. Verify API credentials.")
+        add_log(f"Authentication failed for {payload.exchange.upper()}. Check key permissions or IP restriction.", "ERROR")
+        raise HTTPException(status_code=400, detail="Connection failed. Verify API credentials and ensure IP is unrestricted.")
 
 @app.post("/api/bot/toggle")
 def toggle_auto_trading():
@@ -318,7 +318,7 @@ def evaluate_ai_strategy(current_price: float):
         
     prev_price = PRICE_HISTORY[-2] if len(PRICE_HISTORY) > 1 else current_price
     momentum_delta = current_price - prev_price
-    allocated_risk = BOT_STATE["current_balance"] * (BOT_STATE["risk_pct"] / 100.0)
+    allocated_risk = BOT_State_val = BOT_STATE["current_balance"] * (BOT_STATE["risk_pct"] / 100.0)
     add_log(f"AI Risk Engine ({BOT_STATE['exchange'].upper()}): Balance=${BOT_STATE['current_balance']:,.2f} | Risk Exposure=${allocated_risk:,.2f}", "INFO")
 
 async def background_trading_engine():
@@ -340,5 +340,5 @@ async def background_trading_engine():
 
 @app.on_event("startup")
 async def startup_event():
-    add_log("Mahlabahlasele 4.0 Pro Multi-Broker True-Balance Engine initialized.")
+    add_log("Mahlabahlasele 4.0 Pro Time-Synced Engine initialized.")
     asyncio.create_task(background_trading_engine())
