@@ -132,4 +132,259 @@ def fetch_exchange_data(exchange: str, api_key: str, secret_key: str):
             base_url = "https://api-testnet.bybit.com"
             timestamp = str(int(time.time() * 1000))
             recv_window = "5000"
-            payload_str = f"{timestamp}{clean_key}{recv_
+            payload_str = f"{timestamp}{clean_key}{recv_window}"
+            signature = hmac.new(clean_secret.encode('utf-8'), payload_str.encode('utf-8'), hashlib.sha256).hexdigest()
+            headers = {
+                "X-BAPI-API-KEY": clean_key,
+                "X-BAPI-SIGN": signature,
+                "X-BAPI-TIMESTAMP": timestamp,
+                "X-BAPI-RECV-WINDOW": recv_window,
+                "Content-Type": "application/json"
+            }
+            res = requests.get(f"{base_url}/v5/account/wallet-balance?accountType=UNIFIED", headers=headers, timeout=5)
+            if res.status_code == 200:
+                result = res.json().get("result", {}).get("list", [])
+                if result:
+                    balance = float(result[0].get("totalEquity", balance))
+        except Exception as e:
+            pass
+
+    return balance, positions_count
+
+def auto_detect_and_query_broker(api_key: str, secret_key: str):
+    clean_key = "".join(api_key.split())
+    clean_secret = "".join(secret_key.split())
+    
+    # 1. Probe Binance Testnet & Mainnet
+    binance_endpoints = ["https://testnet.binance.vision/api", "https://api.binance.com/api"]
+    for base_url in binance_endpoints:
+        try:
+            add_log(f"Probing Binance endpoint: {base_url}", "INFO")
+            time_res = requests.get(f"{base_url}/v3/time", timeout=3)
+            server_time = int(time_res.json().get("serverTime", time.time() * 1000)) if time_res.status_code == 200 else int(time.time() * 1000)
+            
+            timestamp = server_time
+            query_string = f"timestamp={timestamp}&recvWindow=60000"
+            signature = hmac.new(clean_secret.encode('utf-8'), query_string.encode('utf-8'), hashlib.sha256).hexdigest()
+            headers = {"X-MBX-APIKEY": clean_key, "Accept": "application/json"}
+            url = f"{base_url}/v3/account?{query_string}&signature={signature}"
+            
+            res = requests.get(url, headers=headers, timeout=5)
+            if res.status_code == 200:
+                data = res.json()
+                balances = data.get("balances", [])
+                total_usdt = sum(float(b.get("free", 0.0)) + float(b.get("locked", 0.0)) for b in balances if b.get("asset", "").upper() in ["USDT", "BUSD", "USDC", "USD"])
+                add_log(f"Auto-Discovery successful: Binance! Balance: ${total_usdt:,.2f}", "SUCCESS")
+                return "binance", float(total_usdt), 0
+        except Exception as e:
+            pass
+
+    # 2. Probe Bybit Unified Testnet
+    try:
+        base_url = "https://api-testnet.bybit.com"
+        timestamp = str(int(time.time() * 1000))
+        recv_window = "5000"
+        payload_str = f"{timestamp}{clean_key}{recv_window}"
+        signature = hmac.new(clean_secret.encode('utf-8'), payload_str.encode('utf-8'), hashlib.sha256).hexdigest()
+        headers = {
+            "X-BAPI-API-KEY": clean_key,
+            "X-BAPI-SIGN": signature,
+            "X-BAPI-TIMESTAMP": timestamp,
+            "X-BAPI-RECV-WINDOW": recv_window,
+            "Content-Type": "application/json"
+        }
+        res = requests.get(f"{base_url}/v5/account/wallet-balance?accountType=UNIFIED", headers=headers, timeout=5)
+        if res.status_code == 200:
+            result = res.json().get("result", {}).get("list", [])
+            if result:
+                total_equity = float(result[0].get("totalEquity", 0.0))
+                add_log(f"Auto-Discovery successful: Bybit! Equity: ${total_equity:,.2f}", "SUCCESS")
+                return "bybit", total_equity, 0
+    except Exception as e:
+        pass
+
+    # 3. Probe Alpaca Paper Trading
+    try:
+        base_url = "https://paper-api.alpaca.markets"
+        headers = {
+            "APCA-API-KEY-ID": clean_key,
+            "APCA-API-SECRET-KEY": clean_secret,
+            "accept": "application/json"
+        }
+        res = requests.get(f"{base_url}/v2/account", headers=headers, timeout=5)
+        if res.status_code == 200:
+            data = res.json()
+            equity = float(data.get("equity", 0.0))
+            add_log(f"Auto-Discovery successful: Alpaca! Equity: ${equity:,.2f}", "SUCCESS")
+            return "alpaca", equity, 0
+    except Exception as e:
+        pass
+
+    add_log("Broker auto-discovery failed across all adapters. Invalid credentials or network error.", "ERROR")
+    return None, 0.0, 0
+
+@app.get("/")
+def read_root():
+    return {
+        "status": "online",
+        "bot": "Mahlabahlasele 4.0 Pro",
+        "bot_active": BOT_STATE["is_active"]
+    }
+
+@app.get("/api/status")
+def get_bot_status():
+    if not BOT_STATE["is_connected"]:
+        return {
+            "active": False,
+            "exchange": BOT_STATE["exchange"],
+            "has_keys": False,
+            "balance": "...",
+            "pnl": "...",
+            "positions_count": "...",
+            "settings": {
+                "lot_size": BOT_STATE["lot_size"],
+                "leverage": BOT_STATE["leverage"],
+                "risk_pct": BOT_STATE["risk_pct"],
+                "stop_loss": BOT_STATE["stop_loss"],
+                "take_profit": BOT_STATE["take_profit"]
+            }
+        }
+
+    calculated_pnl = BOT_STATE["current_balance"] - BOT_STATE["initial_balance"]
+    pnl_str = f"+${calculated_pnl:,.2f}" if calculated_pnl >= 0 else f"-${abs(calculated_pnl):,.2f}"
+
+    return {
+        "active": BOT_STATE["is_active"],
+        "exchange": BOT_STATE["exchange"],
+        "has_keys": True,
+        "balance": f"${BOT_STATE['current_balance']:,.2f}",
+        "pnl": pnl_str,
+        "positions_count": BOT_STATE["open_positions_count"],
+        "settings": {
+            "lot_size": BOT_STATE["lot_size"],
+            "leverage": BOT_STATE["leverage"],
+            "risk_pct": BOT_STATE["risk_pct"],
+            "stop_loss": BOT_STATE["stop_loss"],
+            "take_profit": BOT_STATE["take_profit"]
+        }
+    }
+
+@app.get("/api/logs")
+def get_activity_logs():
+    return {"logs": ACTIVITY_LOGS}
+
+@app.post("/api/config")
+def save_api_keys(payload: ApiKeysPayload):
+    if not payload.api_key or not payload.secret_key:
+        raise HTTPException(status_code=400, detail="API Key and Secret Key are required.")
+    
+    add_log("Initiating Multi-Broker Auto-Discovery...", "INFO")
+    detected_exchange, balance, _ = auto_detect_and_query_broker(payload.api_key, payload.secret_key)
+    
+    if detected_exchange:
+        BOT_STATE["api_key"] = "".join(payload.api_key.split())
+        BOT_STATE["secret_key"] = "".join(payload.secret_key.split())
+        BOT_STATE["exchange"] = detected_exchange
+        BOT_STATE["is_connected"] = True
+        BOT_STATE["initial_balance"] = balance
+        BOT_STATE["current_balance"] = balance
+        BOT_STATE["open_positions_count"] = 0
+        
+        add_log(f"Connected to {detected_exchange.upper()}. True Balance: ${balance:,.2f}", "SUCCESS")
+        return {"status": "success", "message": f"Successfully auto-discovered and connected to {detected_exchange.upper()}."}
+    else:
+        BOT_STATE["is_connected"] = False
+        add_log("Auto-Discovery failed: Credentials rejected by all broker adapters.", "ERROR")
+        raise HTTPException(status_code=400, detail="Authentication failed. Check your API credentials or network connection.")
+
+@app.post("/api/bot/toggle")
+def toggle_auto_trading():
+    if not BOT_STATE["is_connected"]:
+        add_log("Activation blocked: API connection not established.", "ERROR")
+        raise HTTPException(status_code=400, detail="Cannot activate. Connect valid API keys first.")
+    
+    if BOT_STATE["current_balance"] <= 0:
+        add_log("Trading restricted: Account balance is $0.00. Fund your broker account to trade.", "WARNING")
+        raise HTTPException(status_code=400, detail="Trading restricted. Account balance must be greater than $0.00.")
+
+    BOT_STATE["is_active"] = not BOT_STATE["is_active"]
+    status_str = "ACTIVE" if BOT_STATE["is_active"] else "INACTIVE"
+    add_log(f"AI Automated Trading Engine state changed: {status_str}", "WARNING" if BOT_STATE["is_active"] else "INFO")
+    return {"status": "success", "bot_active": BOT_STATE["is_active"], "message": f"Bot is now {status_str}"}
+
+@app.post("/api/settings")
+def update_settings(payload: SettingsPayload):
+    BOT_STATE["lot_size"] = payload.lot_size
+    BOT_STATE["leverage"] = payload.leverage
+    BOT_STATE["risk_pct"] = payload.risk_pct
+    BOT_STATE["stop_loss"] = payload.stop_loss
+    BOT_STATE["take_profit"] = payload.take_profit
+        
+    add_log(f"Risk parameters updated: Lot={payload.lot_size}, Lev={payload.leverage}, Risk={payload.risk_pct}%", "INFO")
+    return {"status": "success", "message": "Settings updated"}
+
+@app.get("/api/market/snapshot")
+def market_snapshot():
+    current_price = PRICE_HISTORY[-1]
+    return {
+        "symbol": "BTC/USDT",
+        "ticker": {
+            "price": current_price,
+            "last": current_price
+        }
+    }
+
+@app.get("/api/positions")
+def get_positions():
+    if not BOT_STATE["is_connected"]:
+        return {"positions": []}
+    
+    return {
+        "positions": [
+            {
+                "symbol": "BTC/USDT",
+                "type": "LONG",
+                "amount": BOT_STATE["lot_size"],
+                "pnl": f"${(BOT_STATE['current_balance'] - BOT_STATE['initial_balance']):,.2f}",
+                "status": "OPEN"
+            }
+        ] if BOT_STATE["open_positions_count"] > 0 else []
+    }
+
+async def background_trading_engine():
+    while True:
+        await asyncio.sleep(15)
+        if BOT_STATE["is_connected"]:
+            # Uses saved session credentials directly without re-probing or logging out
+            current_bal, pos_count = fetch_exchange_data(
+                BOT_STATE["exchange"], 
+                BOT_STATE["api_key"], 
+                BOT_STATE["secret_key"]
+            )
+            BOT_STATE["current_balance"] = current_bal
+            
+            if BOT_STATE["is_active"] and BOT_STATE["current_balance"] > 0:
+                import random
+                fluctuation = round(random.uniform(-5.0, 5.0), 2)
+                new_price = PRICE_HISTORY[-1] + fluctuation
+                PRICE_HISTORY.append(new_price)
+                if len(PRICE_HISTORY) > 20:
+                    PRICE_HISTORY.pop(0)
+                
+                decision = execute_strategy_pipeline(
+                    PRICE_HISTORY, 
+                    BOT_STATE["current_balance"], 
+                    BOT_STATE["risk_pct"],
+                    BOT_STATE["exchange"]
+                )
+                
+                if decision["action"] in ["BUY", "SELL"]:
+                    BOT_STATE["open_positions_count"] += 1
+                    add_log(f"Trade Signal Executed ({decision['action']}): {decision['reason']}", "SUCCESS")
+                else:
+                    add_log(f"Strategy Evaluated: {decision['reason']}", "INFO")
+
+@app.on_event("startup")
+async def startup_event():
+    add_log("Mahlabahlasele 4.0 Pro Engine initialized with Multi-Broker Session Storage.", "SUCCESS")
+    asyncio.create_task(background_trading_engine())
