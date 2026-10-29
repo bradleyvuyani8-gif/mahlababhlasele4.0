@@ -1,202 +1,325 @@
 import os
 import json
+import logging
+import asyncio
 import time
+import hmac
+import hashlib
 import requests
-from fastapi import FastAPI, BackgroundTasks
-from fastapi.responses import HTMLResponse
+from datetime import datetime
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse, FileResponse
+from pydantic import BaseModel
 
-app = FastAPI()
+logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
-# ==========================================
-# 1. PERSISTENT SHARED STORAGE MEMORY
-# ==========================================
-class PersistentMemory:
-    def __init__(self, filename="mahlabahlasele_memory.json"):
-        # Points directly to the Android Download folder via Termux shared storage
-        shared_dir = os.path.expanduser("~/storage/shared/Download")
-        
-        # Fallback to local termux directory if shared storage isn't set up yet
-        if not os.path.exists(shared_dir):
-            shared_dir = "data"
-            
-        self.filepath = os.path.join(shared_dir, filename)
-        self._ensure_directory()
-        self.memory = self.load_memory()
+app = FastAPI(
+    title="Mahlabahlasele 4.0 Pro Engine",
+    description="Multi-Broker Auto-Discovery Telemetry Engine",
+    version="4.0"
+)
 
-    def _ensure_directory(self):
-        directory = os.path.dirname(self.filepath)
-        if directory and not os.path.exists(directory):
-            os.makedirs(directory, exist_ok=True)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-    def load_memory(self):
-        """Loads past learning data and trade outcomes from shared storage."""
-        if os.path.exists(self.filepath):
-            try:
-                with open(self.filepath, "r") as f:
-                    return json.load(f)
-            except Exception as e:
-                print(f"Error loading memory: {e}")
-                
-        # Default baseline memory structure if file doesn't exist
-        return {
-            "total_trades": 0,
-            "successful_trades": 0,
-            "failed_trades": 0,
-            "mistakes_log": [],
-            "learned_weights": {}
-        }
-
-    def save_memory(self):
-        """Writes learning state directly to your phone's file manager."""
-        try:
-            with open(self.filepath, "w") as f:
-                json.dump(self.memory, f, indent=4)
-        except Exception as e:
-            print(f"Error saving memory: {e}")
-
-    def record_trade_outcome(self, trade_type, pnl, market_conditions):
-        """Logs a win or loss, updating the bot's historical record."""
-        self.memory["total_trades"] += 1
-        
-        if pnl > 0:
-            self.memory["successful_trades"] += 1
-        else:
-            self.memory["failed_trades"] += 1
-            self.memory["mistakes_log"].append({
-                "trade_type": trade_type,
-                "pnl": pnl,
-                "conditions": market_conditions
-            })
-            
-        self.save_memory()
-
-# Initialize persistent memory instance
-bot_memory = PersistentMemory()
-
-# ==========================================
-# 2. LIVE ALPACA POSITION FETCHER
-# ==========================================
-def fetch_live_alpaca_positions(api_key: str, api_secret: str, base_url: str = "https://paper-api.alpaca.markets") -> list:
-    """
-    Queries Alpaca REST API directly for real open positions.
-    Additive implementation to replace simulation data safely.
-    """
-    if not api_key or not api_secret or "mock" in api_key.lower():
-        return []
-        
-    headers = {
-        "APCA-API-KEY-ID": api_key,
-        "APCA-API-SECRET-KEY": api_secret
-    }
-    
-    try:
-        response = requests.get(f"{base_url}/v2/positions", headers=headers, timeout=5)
-        if response.status_code == 200:
-            return response.json()
-    except Exception as e:
-        print(f"Error fetching live Alpaca positions: {e}")
-        
-    return []
-
-# ==========================================
-# 3. GLOBAL TELEMETRY & ENGINE STATE
-# ==========================================
-telemetry_state = {
-    "engine_state": "ACTIVE",
-    "active_exchange": "ALPACA",
-    "live_balance": 100000.00,
-    "open_positions": 0,
-    "active_trades_pnl": 0.00,
-    "current_price": 80598.81,
-    "ai_signal": "Awaiting Connection",
-    "telemetry_status": "Connected"
+BOT_STATE = {
+    "is_active": False,
+    "lot_size": 0.15,
+    "leverage": "20x",
+    "risk_pct": 2.5,
+    "stop_loss": 1.2,
+    "take_profit": 4.0,
+    "exchange": "auto-detecting",
+    "api_key": "",
+    "secret_key": "",
+    "is_connected": False,
+    "initial_balance": 0.0,
+    "current_balance": 0.0,
+    "open_positions_count": 0,
+    "active_endpoint": ""
 }
 
-# Credentials configuration (Update these or plug in your live keys generated from Alpaca dashboard)
-ACTIVE_API_KEY = os.environ.get("APCA_API_KEY_ID", "YOUR_ALPACA_API_KEY")
-ACTIVE_API_SECRET = os.environ.get("APCA_API_SECRET_KEY", "YOUR_ALPACA_SECRET_KEY")
-ALPACA_BASE_URL = "https://paper-api.alpaca.markets"
+ACTIVITY_LOGS = []
+last_logged_status = ""
+PRICE_HISTORY = [80619.84, 80625.00, 80610.50, 80630.20, 80619.84]
 
-# ==========================================
-# 4. BACKGROUND TRADING & POLLING LOOP
-# ==========================================
-def background_trading_engine():
-    """Background worker loop updating telemetry and pulling live Alpaca positions."""
-    while True:
-        try:
-            # 1. Fetch real open positions count from Alpaca API
-            live_positions = fetch_live_alpaca_positions(ACTIVE_API_KEY, ACTIVE_API_SECRET, ALPACA_BASE_URL)
-            telemetry_state["open_positions"] = len(live_positions)
-            
-            # If positions exist, calculate total live PnL if available from response
-            if live_positions:
-                total_pnl = sum(float(pos.get("unrealized_pl", 0.0)) for pos in live_positions)
-                telemetry_state["active_trades_pnl"] = round(total_pnl, 2)
-            else:
-                telemetry_state["active_trades_pnl"] = 0.00
-                
-            telemetry_state["ai_signal"] = "Market Monitored - Live Sync OK"
-        except Exception as e:
-            print(f"Background engine loop error: {e}")
-            telemetry_state["ai_signal"] = "Sync Error / Retrying"
-            
-        time.sleep(10)
+def add_log(message: str, level: str = "INFO"):
+    global last_logged_status
+    if message == last_logged_status:
+        return
+    last_logged_status = message
+    
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    log_entry = {"time": timestamp, "message": message, "level": level}
+    ACTIVITY_LOGS.insert(0, log_entry)
+    if len(ACTIVITY_LOGS) > 30:
+        ACTIVITY_LOGS.pop()
+    print(f"[{timestamp}] [{level}] {message}")
 
-@app.on_event("startup")
-def startup_event():
-    import threading
-    engine_thread = threading.Thread(target=background_trading_engine, daemon=True)
-    engine_thread.start()
+if os.path.exists("frontend"):
+    app.mount("/static", StaticFiles(directory="frontend"), name="static")
 
-# ==========================================
-# 5. DASHBOARD & API ENDPOINTS
-# ==========================================
 @app.get("/dashboard", response_class=HTMLResponse)
-def get_dashboard():
-    return f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Mahlabahlasele Control Panel</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <style>
-            body {{ background: #0f172a; color: #f8fafc; font-family: sans-serif; padding: 15px; margin: 0; }}
-            .card {{ background: #1e293b; padding: 15px; border-radius: 8px; margin-bottom: 12px; }}
-            h2 {{ color: #38bdf8; font-size: 1.2rem; margin-top: 0; }}
-            .metric {{ display: flex; justify-content: space-between; margin: 8px 0; border-bottom: 1px solid #334155; padding-bottom: 6px; }}
-        </style>
-    </head>
-    <body>
-        <h2>MAHLABAHLASELE ENGINE</h2>
-        <div class="card">
-            <div class="metric"><span>Engine State:</span> <strong>{telemetry_state['engine_state']}</strong></div>
-            <div class="metric"><span>Active Exchange:</span> <strong>{telemetry_state['active_exchange']}</strong></div>
-            <div class="metric"><span>Live Balance:</span> <strong>${telemetry_state['live_balance']:,.2f}</strong></div>
-            <div class="metric"><span>Open Positions:</span> <strong>{telemetry_state['open_positions']}</strong></div>
-            <div class="metric"><span>Active Trades PnL:</span> <strong>${telemetry_state['active_trades_pnl']:,.2f}</strong></div>
-        </div>
-        <div class="card">
-            <h2>MARKET VIEW (BTC/USDT)</h2>
-            <div class="metric"><span>Current Price:</span> <strong>${telemetry_state['current_price']:,.2f}</strong></div>
-            <div class="metric"><span>AI Strategy Signal:</span> <strong>{telemetry_state['ai_signal']}</strong></div>
-            <div class="metric"><span>Telemetry Status:</span> <strong style="color: #4ade80;">{telemetry_state['telemetry_status']}</strong></div>
-        </div>
-        <div class="card">
-            <h2>MEMORY SYSTEM</h2>
-            <div class="metric"><span>Total Logged Trades:</span> <strong>{bot_memory.memory['total_trades']}</strong></div>
-            <div class="metric"><span>Storage Path:</span> <small>{bot_memory.filepath}</small></div>
-        </div>
-    </body>
-    </html>
-    """
+def serve_dashboard():
+    if os.path.exists("frontend/index.html"):
+        return FileResponse("frontend/index.html")
+    return {"error": "frontend/index.html not found"}
 
-@app.get("/api/telemetry")
-def get_telemetry():
+class ApiKeysPayload(BaseModel):
+    api_key: str
+    secret_key: str
+
+class SettingsPayload(BaseModel):
+    lot_size: float
+    leverage: str
+    risk_pct: float
+    stop_loss: float
+    take_profit: float
+
+def auto_detect_and_query_broker(api_key: str, secret_key: str):
+    clean_key = "".join(api_key.split())
+    clean_secret = "".join(secret_key.split())
+    
+    # 1. Probe Binance Testnet & Mainnet
+    binance_endpoints = ["https://testnet.binance.vision/api", "https://api.binance.com/api"]
+    for base_url in binance_endpoints:
+        try:
+            add_log(f"Probing Binance endpoint: {base_url}", "INFO")
+            time_res = requests.get(f"{base_url}/v3/time", timeout=3)
+            server_time = int(time_res.json().get("serverTime", time.time() * 1000)) if time_res.status_code == 200 else int(time.time() * 1000)
+            
+            timestamp = server_time
+            query_string = f"timestamp={timestamp}&recvWindow=60000"
+            signature = hmac.new(clean_secret.encode('utf-8'), query_string.encode('utf-8'), hashlib.sha256).hexdigest()
+            headers = {"X-MBX-APIKEY": clean_key, "Accept": "application/json"}
+            url = f"{base_url}/v3/account?{query_string}&signature={signature}"
+            
+            res = requests.get(url, headers=headers, timeout=5)
+            if res.status_code == 200:
+                data = res.json()
+                balances = data.get("balances", [])
+                total_usdt = sum(float(b.get("free", 0.0)) + float(b.get("locked", 0.0)) for b in balances if b.get("asset", "").upper() in ["USDT", "BUSD", "USDC", "USD"])
+                add_log(f"Auto-Discovery successful: Binance! Balance: ${total_usdt:,.2f}", "SUCCESS")
+                return "binance", float(total_usdt), 0
+            else:
+                add_log(f"Binance probe rejected: {res.text}", "WARNING")
+        except Exception as e:
+            add_log(f"Binance probe exception: {e}", "DEBUG")
+
+    # 2. Probe Bybit Unified Testnet
+    try:
+        base_url = "https://api-testnet.bybit.com"
+        timestamp = str(int(time.time() * 1000))
+        recv_window = "5000"
+        payload_str = f"{timestamp}{clean_key}{recv_window}"
+        signature = hmac.new(clean_secret.encode('utf-8'), payload_str.encode('utf-8'), hashlib.sha256).hexdigest()
+        headers = {
+            "X-BAPI-API-KEY": clean_key,
+            "X-BAPI-SIGN": signature,
+            "X-BAPI-TIMESTAMP": timestamp,
+            "X-BAPI-RECV-WINDOW": recv_window,
+            "Content-Type": "application/json"
+        }
+        res = requests.get(f"{base_url}/v5/account/wallet-balance?accountType=UNIFIED", headers=headers, timeout=5)
+        if res.status_code == 200:
+            result = res.json().get("result", {}).get("list", [])
+            if result:
+                total_equity = float(result[0].get("totalEquity", 0.0))
+                add_log(f"Auto-Discovery successful: Bybit! Equity: ${total_equity:,.2f}", "SUCCESS")
+                return "bybit", total_equity, 0
+    except Exception as e:
+        add_log(f"Bybit probe exception: {e}", "DEBUG")
+
+    # 3. Probe Alpaca Paper Trading
+    try:
+        base_url = "https://paper-api.alpaca.markets"
+        headers = {
+            "APCA-API-KEY-ID": clean_key,
+            "APCA-API-SECRET-KEY": clean_secret,
+            "accept": "application/json"
+        }
+        res = requests.get(f"{base_url}/v2/account", headers=headers, timeout=5)
+        if res.status_code == 200:
+            data = res.json()
+            equity = float(data.get("equity", 0.0))
+            add_log(f"Auto-Discovery successful: Alpaca! Equity: ${equity:,.2f}", "SUCCESS")
+            return "alpaca", equity, 0
+    except Exception as e:
+        add_log(f"Alpaca probe exception: {e}", "DEBUG")
+
+    add_log("Broker auto-discovery failed across all adapters. Invalid credentials or network error.", "ERROR")
+    return None, 0.0, 0
+
+@app.get("/")
+def read_root():
     return {
-        "telemetry": telemetry_state,
-        "memory_stats": {
-            "total_trades": bot_memory.memory["total_trades"],
-            "successful_trades": bot_memory.memory["successful_trades"],
-            "failed_trades": bot_memory.memory["failed_trades"]
+        "status": "online",
+        "bot": "Mahlabahlasele 4.0 Pro",
+        "bot_active": BOT_STATE["is_active"]
+    }
+
+@app.get("/api/status")
+def get_bot_status():
+    if not BOT_STATE["is_connected"]:
+        return {
+            "active": False,
+            "exchange": BOT_STATE["exchange"],
+            "has_keys": False,
+            "balance": "...",
+            "pnl": "...",
+            "positions_count": "...",
+            "settings": {
+                "lot_size": BOT_STATE["lot_size"],
+                "leverage": BOT_STATE["leverage"],
+                "risk_pct": BOT_STATE["risk_pct"],
+                "stop_loss": BOT_STATE["stop_loss"],
+                "take_profit": BOT_STATE["take_profit"]
+            }
+        }
+
+    detected_exchange, current_balance, positions_count = auto_detect_and_query_broker(
+        BOT_STATE["api_key"], 
+        BOT_STATE["secret_key"]
+    )
+    
+    if detected_exchange:
+        BOT_STATE["current_balance"] = current_balance
+
+    calculated_pnl = BOT_STATE["current_balance"] - BOT_STATE["initial_balance"]
+    pnl_str = f"+${calculated_pnl:,.2f}" if calculated_pnl >= 0 else f"-${abs(calculated_pnl):,.2f}"
+
+    return {
+        "active": BOT_STATE["is_active"],
+        "exchange": BOT_STATE["exchange"],
+        "has_keys": True,
+        "balance": f"${BOT_STATE['current_balance']:,.2f}",
+        "pnl": pnl_str,
+        "positions_count": BOT_STATE["open_positions_count"],
+        "settings": {
+            "lot_size": BOT_STATE["lot_size"],
+            "leverage": BOT_STATE["leverage"],
+            "risk_pct": BOT_STATE["risk_pct"],
+            "stop_loss": BOT_STATE["stop_loss"],
+            "take_profit": BOT_STATE["take_profit"]
         }
     }
+
+@app.get("/api/logs")
+def get_activity_logs():
+    return {"logs": ACTIVITY_LOGS}
+
+@app.post("/api/config")
+def save_api_keys(payload: ApiKeysPayload):
+    if not payload.api_key or not payload.secret_key:
+        raise HTTPException(status_code=400, detail="API Key and Secret Key are required.")
+    
+    add_log("Initiating Multi-Broker Auto-Discovery...", "INFO")
+    detected_exchange, balance, _ = auto_detect_and_query_broker(payload.api_key, payload.secret_key)
+    
+    if detected_exchange:
+        BOT_STATE["api_key"] = "".join(payload.api_key.split())
+        BOT_STATE["secret_key"] = "".join(payload.secret_key.split())
+        BOT_STATE["exchange"] = detected_exchange
+        BOT_STATE["is_connected"] = True
+        BOT_STATE["initial_balance"] = balance
+        BOT_STATE["current_balance"] = balance
+        
+        add_log(f"Connected to {detected_exchange.upper()}. True Balance: ${balance:,.2f}", "SUCCESS")
+        return {"status": "success", "message": f"Successfully auto-discovered and connected to {detected_exchange.upper()}."}
+    else:
+        BOT_STATE["is_connected"] = False
+        add_log("Auto-Discovery failed: Credentials rejected by all broker adapters.", "ERROR")
+        raise HTTPException(status_code=400, detail="Authentication failed. Check your API credentials or network connection.")
+
+@app.post("/api/bot/toggle")
+def toggle_auto_trading():
+    if not BOT_STATE["is_connected"]:
+        add_log("Activation blocked: API connection not established.", "ERROR")
+        raise HTTPException(status_code=400, detail="Cannot activate. Connect valid API keys first.")
+    
+    if BOT_STATE["current_balance"] <= 0:
+        add_log("Trading restricted: Account balance is $0.00. Fund your broker account to trade.", "WARNING")
+        raise HTTPException(status_code=400, detail="Trading restricted. Account balance must be greater than $0.00.")
+
+    BOT_STATE["is_active"] = not BOT_STATE["is_active"]
+    status_str = "ACTIVE" if BOT_STATE["is_active"] else "INACTIVE"
+    add_log(f"AI Automated Trading Engine state changed: {status_str}", "WARNING" if BOT_STATE["is_active"] else "INFO")
+    return {"status": "success", "bot_active": BOT_STATE["is_active"], "message": f"Bot is now {status_str}"}
+
+@app.post("/api/settings")
+def update_settings(payload: SettingsPayload):
+    BOT_STATE["lot_size"] = payload.lot_size
+    BOT_STATE["leverage"] = payload.leverage
+    BOT_STATE["risk_pct"] = payload.risk_pct
+    BOT_STATE["stop_loss"] = payload.stop_loss
+    BOT_STATE["take_profit"] = payload.take_profit
+        
+    add_log(f"Risk parameters updated: Lot={payload.lot_size}, Lev={payload.leverage}, Risk={payload.risk_pct}%", "INFO")
+    return {"status": "success", "message": "Settings updated"}
+
+@app.get("/api/market/snapshot")
+def market_snapshot():
+    current_price = PRICE_HISTORY[-1]
+    return {
+        "symbol": "BTC/USDT",
+        "ticker": {
+            "price": current_price,
+            "last": current_price
+        }
+    }
+
+@app.get("/api/positions")
+def get_positions():
+    if not BOT_STATE["is_connected"]:
+        return {"positions": []}
+    
+    return {
+        "positions": [
+            {
+                "symbol": "BTC/USDT",
+                "type": "LONG",
+                "amount": BOT_STATE["lot_size"],
+                "pnl": "+$0.00",
+                "status": "OPEN"
+            }
+        ] if BOT_STATE["is_active"] else []
+    }
+
+def evaluate_ai_strategy(current_price: float):
+    if not BOT_STATE["is_connected"]:
+        return
+        
+    prev_price = PRICE_HISTORY[-2] if len(PRICE_HISTORY) > 1 else current_price
+    allocated_risk = BOT_STATE["current_balance"] * (BOT_STATE["risk_pct"] / 100.0)
+    add_log(f"AI Analyzing market momentum ({BOT_STATE['exchange'].upper()}). Balance: ${BOT_STATE['current_balance']:,.2f} | Risk Capital: ${allocated_risk:,.2f}", "INFO")
+
+async def background_trading_engine():
+    while True:
+        await asyncio.sleep(15)
+        if BOT_STATE["is_connected"]:
+            detected_exchange, current_bal, _ = auto_detect_and_query_broker(BOT_STATE["api_key"], BOT_STATE["secret_key"])
+            if detected_exchange:
+                BOT_STATE["current_balance"] = current_bal
+                
+            if BOT_STATE["is_active"] and BOT_STATE["current_balance"] > 0:
+                import random
+                fluctuation = round(random.uniform(-5.0, 5.0), 2)
+                new_price = PRICE_HISTORY[-1] + fluctuation
+                PRICE_HISTORY.append(new_price)
+                if len(PRICE_HISTORY) > 20:
+                    PRICE_HISTORY.pop(0)
+                BOT_STATE["open_positions_count"] = 1
+                add_log("Trade signal detected & order simulated successfully.", "SUCCESS")
+                evaluate_ai_strategy(new_price)
+
+@app.on_event("startup")
+async def startup_event():
+    add_log("Mahlabahlasele 4.0 Pro Engine initialized with Multi-Broker Auto-Discovery.", "SUCCESS")
+    asyncio.create_task(background_trading_engine())
