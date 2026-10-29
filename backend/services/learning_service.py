@@ -1,51 +1,94 @@
-import numpy as np
+import json
+import os
 
-def calculate_fair_value_gaps(prices: list, threshold: float = 0.001):
-    """
-    Identifies Fair Value Gaps (FVG) from recent price action history.
-    An FVG occurs when there is an imbalance (a large gap between candle 1's high/low and candle 3's low/high).
-    """
-    if len(prices) < 3:
-        return "NEUTRAL", 0.0
+class PersistentMemory:
+    def __init__(self, filename="mahlabahlasele_memory.json"):
+        shared_dir = os.path.expanduser("~/storage/shared/Download")
+        if not os.path.exists(shared_dir):
+            shared_dir = "data"
+        self.filepath = os.path.join(shared_dir, filename)
+        self._ensure_directory()
+        self.memory = self.load_memory()
 
-    # Using the last 3 candles
-    c1, c2, c3 = prices[-3], prices[-2], prices[-1]
+    def _ensure_directory(self):
+        directory = os.path.dirname(self.filepath)
+        if directory and not os.path.exists(directory):
+            os.makedirs(directory, exist_ok=True)
+
+    def load_memory(self):
+        if os.path.exists(self.filepath):
+            try:
+                with open(self.filepath, "r") as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"Error loading memory: {e}")
+        return {
+            "total_trades": 0,
+            "successful_trades": 0,
+            "failed_trades": 0,
+            "mistakes_log": [],
+            "learned_weights": {}
+        }
+
+    def save_memory(self):
+        try:
+            with open(self.filepath, "w") as f:
+                json.dump(self.memory, f, indent=4)
+        except Exception as e:
+            print(f"Error saving memory: {e}")
+
+    def record_trade_outcome(self, trade_type, pnl, market_conditions):
+        self.memory["total_trades"] += 1
+        if pnl > 0:
+            self.memory["successful_trades"] += 1
+        else:
+            self.memory["failed_trades"] += 1
+            self.memory["mistakes_log"].append({
+                "trade_type": trade_type,
+                "pnl": pnl,
+                "conditions": market_conditions
+            })
+        self.save_memory()
+
+bot_memory = PersistentMemory()
+
+def evaluate_memory_guardrail(current_market_data):
+    mistakes_log = bot_memory.memory.get("mistakes_log", [])
+    current_trend = current_market_data.get("trend", "neutral")
+    current_volatility = current_market_data.get("volatility", "normal")
     
-    # Bullish FVG: Low of candle 3 is higher than high of candle 1
-    # (Simplified for closing prices/tick sequences in simulation)
+    for mistake in mistakes_log:
+        past_conditions = mistake.get("conditions", {})
+        if (past_conditions.get("trend") == current_trend and 
+            past_conditions.get("volatility") == current_volatility):
+            return "HOLD"
+    return "EXECUTE"
+
+def execute_strategy_pipeline(price_history: list, current_balance: float, risk_pct: float, exchange: str):
+    if len(price_history) < 3:
+        return {"action": "HOLD", "reason": "Insufficient market data points."}
+    
+    market_snapshot = {"trend": "neutral", "volatility": "normal"}
+    if evaluate_memory_guardrail(market_snapshot) == "HOLD":
+        return {"action": "HOLD", "reason": "Blocked by persistent memory guardrail."}
+        
+    allocated_risk = current_balance * (risk_pct / 100.0)
+    c1, c2, c3 = price_history[-3], price_history[-2], price_history[-1]
     momentum = c3 - c1
     
-    if momentum > (c1 * threshold):
-        return "BULLISH_FVG", momentum
-    elif momentum < -(c1 * threshold):
-        return "BEARISH_FVG", momentum
-        
-    return "NEUTRAL", 0.0
-
-def evaluate_advanced_strategy(price_history: list, current_balance: float, risk_pct: float):
-    """
-    Evaluates market conditions using institutional price action logic 
-    and calculates position sizing based on risk percentage.
-    """
-    if len(price_history) < 5:
-        return {"signal": "HOLD", "size": 0.0}
-
-    signal, strength = calculate_fair_value_gaps(price_history)
-    risk_capital = current_balance * (risk_pct / 100.0)
-
-    if signal == "BULLISH_FVG":
+    if momentum > (c1 * 0.0001):
         return {
-            "signal": "BUY",
-            "confidence": "HIGH",
-            "risk_allocated": risk_capital,
-            "reason": "Bullish Fair Value Gap imbalance detected."
+            "action": "BUY",
+            "symbol": "BTC/USDT",
+            "allocated_risk": allocated_risk,
+            "reason": f"Bullish momentum detected on {exchange.upper()}."
         }
-    elif signal == "BEARISH_FVG":
+    elif momentum < -(c1 * 0.0001):
         return {
-            "signal": "SELL",
-            "confidence": "HIGH",
-            "risk_allocated": risk_capital,
-            "reason": "Bearish Fair Value Gap imbalance detected."
+            "action": "SELL",
+            "symbol": "BTC/USDT",
+            "allocated_risk": allocated_risk,
+            "reason": f"Bearish momentum detected on {exchange.upper()}."
         }
         
-    return {"signal": "HOLD", "confidence": "LOW", "risk_allocated": 0.0, "reason": "Consolidation / No FVG."}
+    return {"action": "HOLD", "reason": "Consolidation detected."}
