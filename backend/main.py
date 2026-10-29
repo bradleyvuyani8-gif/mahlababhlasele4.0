@@ -29,6 +29,71 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ==========================================
+# 1. PERSISTENT SHARED STORAGE MEMORY CLASS
+# ==========================================
+class PersistentMemory:
+    def __init__(self, filename="mahlabahlasele_memory.json"):
+        # Points directly to the Android Download folder via Termux shared storage
+        shared_dir = os.path.expanduser("~/storage/shared/Download")
+        
+        # Fallback to local termux directory if shared storage isn't set up yet
+        if not os.path.exists(shared_dir):
+            shared_dir = "data"
+            
+        self.filepath = os.path.join(shared_dir, filename)
+        self._ensure_directory()
+        self.memory = self.load_memory()
+
+    def _ensure_directory(self):
+        directory = os.path.dirname(self.filepath)
+        if directory and not os.path.exists(directory):
+            os.makedirs(directory, exist_ok=True)
+
+    def load_memory(self):
+        """Loads past learning data and trade outcomes from shared storage."""
+        if os.path.exists(self.filepath):
+            try:
+                with open(self.filepath, "r") as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"Error loading memory: {e}")
+                
+        # Default baseline memory structure if file doesn't exist
+        return {
+            "total_trades": 0,
+            "successful_trades": 0,
+            "failed_trades": 0,
+            "mistakes_log": [],
+            "learned_weights": {}
+        }
+
+    def save_memory(self):
+        """Writes learning state directly to your phone's file manager."""
+        try:
+            with open(self.filepath, "w") as f:
+                json.dump(self.memory, f, indent=4)
+        except Exception as e:
+            print(f"Error saving memory: {e}")
+
+    def record_trade_outcome(self, trade_type, pnl, market_conditions):
+        """Logs a win or loss, updating the bot's historical record."""
+        self.memory["total_trades"] += 1
+        
+        if pnl > 0:
+            self.memory["successful_trades"] += 1
+        else:
+            self.memory["failed_trades"] += 1
+            self.memory["mistakes_log"].append({
+                "trade_type": trade_type,
+                "pnl": pnl,
+                "conditions": market_conditions
+            })
+            
+        self.save_memory()
+
+bot_memory = PersistentMemory()
+
 BOT_STATE = {
     "is_active": False,
     "lot_size": 0.15,
@@ -83,6 +148,65 @@ class SettingsPayload(BaseModel):
     stop_loss: float
     take_profit: float
 
+# ==========================================
+# REAL OPEN POSITIONS FETCHERS FOR BROKERS
+# ==========================================
+def fetch_real_positions(exchange: str, api_key: str, secret_key: str) -> list:
+    clean_key = "".join(api_key.split())
+    clean_secret = "".join(secret_key.split())
+    
+    if exchange == "alpaca":
+        try:
+            base_url = "https://paper-api.alpaca.markets"
+            headers = {
+                "APCA-API-KEY-ID": clean_key,
+                "APCA-API-SECRET-KEY": clean_secret,
+                "accept": "application/json"
+            }
+            res = requests.get(f"{base_url}/v2/positions", headers=headers, timeout=5)
+            if res.status_code == 200:
+                return res.json()
+        except Exception as e:
+            add_log(f"Alpaca positions fetch error: {e}", "DEBUG")
+            
+    elif exchange == "binance":
+        binance_endpoints = ["https://testnet.binance.vision/api", "https://api.binance.com/api"]
+        for base_url in binance_endpoints:
+            try:
+                timestamp = int(time.time() * 1000)
+                query_string = f"timestamp={timestamp}&recvWindow=60000"
+                signature = hmac.new(clean_secret.encode('utf-8'), query_string.encode('utf-8'), hashlib.sha256).hexdigest()
+                headers = {"X-MBX-APIKEY": clean_key, "Accept": "application/json"}
+                url = f"{base_url}/v3/openOrders?{query_string}&signature={signature}"
+                res = requests.get(url, headers=headers, timeout=5)
+                if res.status_code == 200:
+                    return res.json()
+            except Exception as e:
+                pass
+
+    elif exchange == "bybit":
+        try:
+            base_url = "https://api-testnet.bybit.com"
+            timestamp = str(int(time.time() * 1000))
+            recv_window = "5000"
+            query_params = "category=linear&settleCoin=USDT"
+            payload_str = f"{timestamp}{clean_key}{recv_window}{query_params}"
+            signature = hmac.new(clean_secret.encode('utf-8'), payload_str.encode('utf-8'), hashlib.sha256).hexdigest()
+            headers = {
+                "X-BAPI-API-KEY": clean_key,
+                "X-BAPI-SIGN": signature,
+                "X-BAPI-TIMESTAMP": timestamp,
+                "X-BAPI-RECV-WINDOW": recv_window
+            }
+            res = requests.get(f"{base_url}/v5/position/list?{query_params}", headers=headers, timeout=5)
+            if res.status_code == 200:
+                list_data = res.json().get("result", {}).get("list", [])
+                return [p for p in list_data if float(p.get("size", 0.0)) > 0]
+        except Exception as e:
+            pass
+            
+    return []
+
 def auto_detect_and_query_broker(api_key: str, secret_key: str):
     clean_key = "".join(api_key.split())
     clean_secret = "".join(secret_key.split())
@@ -107,7 +231,8 @@ def auto_detect_and_query_broker(api_key: str, secret_key: str):
                 balances = data.get("balances", [])
                 total_usdt = sum(float(b.get("free", 0.0)) + float(b.get("locked", 0.0)) for b in balances if b.get("asset", "").upper() in ["USDT", "BUSD", "USDC", "USD"])
                 add_log(f"Auto-Discovery successful: Binance! Balance: ${total_usdt:,.2f}", "SUCCESS")
-                return "binance", float(total_usdt), 0
+                real_pos = fetch_real_positions("binance", clean_key, clean_secret)
+                return "binance", float(total_usdt), len(real_pos)
             else:
                 add_log(f"Binance probe rejected: {res.text}", "WARNING")
         except Exception as e:
@@ -133,7 +258,8 @@ def auto_detect_and_query_broker(api_key: str, secret_key: str):
             if result:
                 total_equity = float(result[0].get("totalEquity", 0.0))
                 add_log(f"Auto-Discovery successful: Bybit! Equity: ${total_equity:,.2f}", "SUCCESS")
-                return "bybit", total_equity, 0
+                real_pos = fetch_real_positions("bybit", clean_key, clean_secret)
+                return "bybit", total_equity, len(real_pos)
     except Exception as e:
         add_log(f"Bybit probe exception: {e}", "DEBUG")
 
@@ -150,7 +276,8 @@ def auto_detect_and_query_broker(api_key: str, secret_key: str):
             data = res.json()
             equity = float(data.get("equity", 0.0))
             add_log(f"Auto-Discovery successful: Alpaca! Equity: ${equity:,.2f}", "SUCCESS")
-            return "alpaca", equity, 0
+            real_pos = fetch_real_positions("alpaca", clean_key, clean_secret)
+            return "alpaca", equity, len(real_pos)
     except Exception as e:
         add_log(f"Alpaca probe exception: {e}", "DEBUG")
 
@@ -191,6 +318,7 @@ def get_bot_status():
     
     if detected_exchange:
         BOT_STATE["current_balance"] = current_balance
+        BOT_STATE["open_positions_count"] = positions_count
 
     calculated_pnl = BOT_STATE["current_balance"] - BOT_STATE["initial_balance"]
     pnl_str = f"+${calculated_pnl:,.2f}" if calculated_pnl >= 0 else f"-${abs(calculated_pnl):,.2f}"
@@ -221,7 +349,7 @@ def save_api_keys(payload: ApiKeysPayload):
         raise HTTPException(status_code=400, detail="API Key and Secret Key are required.")
     
     add_log("Initiating Multi-Broker Auto-Discovery...", "INFO")
-    detected_exchange, balance, _ = auto_detect_and_query_broker(payload.api_key, payload.secret_key)
+    detected_exchange, balance, positions_count = auto_detect_and_query_broker(payload.api_key, payload.secret_key)
     
     if detected_exchange:
         BOT_STATE["api_key"] = "".join(payload.api_key.split())
@@ -230,6 +358,7 @@ def save_api_keys(payload: ApiKeysPayload):
         BOT_STATE["is_connected"] = True
         BOT_STATE["initial_balance"] = balance
         BOT_STATE["current_balance"] = balance
+        BOT_STATE["open_positions_count"] = positions_count
         
         add_log(f"Connected to {detected_exchange.upper()}. True Balance: ${balance:,.2f}", "SUCCESS")
         return {"status": "success", "message": f"Successfully auto-discovered and connected to {detected_exchange.upper()}."}
@@ -280,46 +409,8 @@ def get_positions():
     if not BOT_STATE["is_connected"]:
         return {"positions": []}
     
-    return {
-        "positions": [
-            {
-                "symbol": "BTC/USDT",
-                "type": "LONG",
-                "amount": BOT_STATE["lot_size"],
-                "pnl": "+$0.00",
-                "status": "OPEN"
-            }
-        ] if BOT_STATE["is_active"] else []
-    }
-
-def evaluate_ai_strategy(current_price: float):
-    if not BOT_STATE["is_connected"]:
-        return
-        
-    prev_price = PRICE_HISTORY[-2] if len(PRICE_HISTORY) > 1 else current_price
-    allocated_risk = BOT_STATE["current_balance"] * (BOT_STATE["risk_pct"] / 100.0)
-    add_log(f"AI Analyzing market momentum ({BOT_STATE['exchange'].upper()}). Balance: ${BOT_STATE['current_balance']:,.2f} | Risk Capital: ${allocated_risk:,.2f}", "INFO")
-
-async def background_trading_engine():
-    while True:
-        await asyncio.sleep(15)
-        if BOT_STATE["is_connected"]:
-            detected_exchange, current_bal, _ = auto_detect_and_query_broker(BOT_STATE["api_key"], BOT_STATE["secret_key"])
-            if detected_exchange:
-                BOT_STATE["current_balance"] = current_bal
-                
-            if BOT_STATE["is_active"] and BOT_STATE["current_balance"] > 0:
-                import random
-                fluctuation = round(random.uniform(-5.0, 5.0), 2)
-                new_price = PRICE_HISTORY[-1] + fluctuation
-                PRICE_HISTORY.append(new_price)
-                if len(PRICE_HISTORY) > 20:
-                    PRICE_HISTORY.pop(0)
-                BOT_STATE["open_positions_count"] = 1
-                add_log("Trade signal detected & order simulated successfully.", "SUCCESS")
-                evaluate_ai_strategy(new_price)
-
-@app.on_event("startup")
-async def startup_event():
-    add_log("Mahlabahlasele 4.0 Pro Engine initialized with Multi-Broker Auto-Discovery.", "SUCCESS")
-    asyncio.create_task(background_trading_engine())
+    real_pos = fetch_real_positions(BOT_STATE["exchange"], BOT_STATE["api_key"], BOT_STATE["secret_key"])
+    
+    positions_list = []
+    for pos in real_pos:
+        positions_
