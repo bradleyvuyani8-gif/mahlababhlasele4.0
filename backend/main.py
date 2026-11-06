@@ -29,7 +29,7 @@ class CredentialsPayload(BaseModel):
     secret_key: str
     testnet: bool = True
 
-@app.post("/api/auth/configure")
+@app.post("/api/config")
 def configure_keys(payload: CredentialsPayload):
     service = ExchangeService(payload.api_key, payload.secret_key, payload.testnet, payload.exchange)
     success, balance, error_data = service.fetch_account_data()
@@ -59,6 +59,15 @@ def get_status():
 @app.get("/api/logs")
 def get_logs():
     return {"logs": ["Engine operational", "Telemetry stream active"]}
+
+@app.get("/api/market/snapshot")
+def market_snapshot():
+    return {
+        "pair": "BTC/USDT",
+        "price": 80619.84,
+        "signal": "Awaiting Connection",
+        "timestamp": int(time.time())
+    }
 
 @app.post("/api/risk/update")
 def update_risk(params: RiskParameters):
