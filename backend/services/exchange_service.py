@@ -5,20 +5,25 @@ import requests
 from typing import Dict, Any, Tuple
 
 class ExchangeService:
-    def __init__(self, exchange: str, api_key: str, secret_key: str, testnet: bool = True):
-        self.exchange = exchange.lower().strip()
+    def __init__(self, api_key: str, secret_key: str, testnet: bool = True, exchange_hint: str = ""):
         self.api_key = api_key.strip()
         self.secret_key = secret_key.strip()
         self.testnet = testnet
+        self.exchange = self._auto_detect_exchange(exchange_hint)
 
-    def _get_base_url(self) -> str:
-        if self.exchange == "binance":
-            return "https://testnet.binance.vision" if self.testnet else "https://api.binance.com"
-        elif self.exchange == "bybit":
-            return "https://api-testnet.bybit.com" if self.testnet else "https://api.bybit.com"
-        elif self.exchange == "alpaca":
-            return "https://paper-api.alpaca.markets" if self.testnet else "https://api.alpaca.markets"
-        raise ValueError(f"Unknown exchange: {self.exchange}")
+    def _auto_detect_exchange(self, hint: str) -> str:
+        hint = hint.lower().strip()
+        if hint in ["binance", "bybit", "alpaca", "kucoin"]:
+            return hint
+        
+        # Smart key pattern detection
+        if self.api_key.startswith("PK") or self.api_key.startswith("AK") or len(self.api_key) == 20:
+            return "alpaca"
+        elif "binance" in hint:
+            return "binance"
+        elif "bybit" in hint:
+            return "bybit"
+        return "alpaca"
 
     def _sign_binance(self, query_params: Dict[str, Any]) -> str:
         query_string = "&".join([f"{k}={v}" for k, v in sorted(query_params.items())])
@@ -29,9 +34,25 @@ class ExchangeService:
         ).hexdigest()
 
     def fetch_account_data(self) -> Tuple[bool, float, Dict[str, Any]]:
-        base_url = self._get_base_url()
+        if self.exchange == "alpaca":
+            base_url = "https://paper-api.alpaca.markets" if self.testnet else "https://api.alpaca.markets"
+            url = f"{base_url}/v2/account"
+            headers = {
+                "APCA-API-KEY-ID": self.api_key,
+                "APCA-API-SECRET-KEY": self.secret_key
+            }
+            try:
+                res = requests.get(url, headers=headers, timeout=8)
+                if res.status_code == 200:
+                    data = res.json()
+                    equity = float(data.get("equity", data.get("cash", 0.0)))
+                    return True, equity, data
+                return False, 0.0, {"error": res.json(), "status_code": res.status_code}
+            except Exception as e:
+                return False, 0.0, {"error": str(e)}
 
-        if self.exchange == "binance":
+        elif self.exchange == "binance":
+            base_url = "https://testnet.binance.vision" if self.testnet else "https://api.binance.com"
             url = f"{base_url}/api/v3/account"
             params: Dict[str, Any] = {"timestamp": int(time.time() * 1000)}
             params["signature"] = self._sign_binance(params)
@@ -52,6 +73,7 @@ class ExchangeService:
                 return False, 0.0, {"error": str(e)}
 
         elif self.exchange == "bybit":
+            base_url = "https://api-testnet.bybit.com" if self.testnet else "https://api.bybit.com"
             url = f"{base_url}/v5/account/wallet-balance"
             timestamp = str(int(time.time() * 1000))
             recv_window = "5000"
@@ -84,20 +106,4 @@ class ExchangeService:
             except Exception as e:
                 return False, 0.0, {"error": str(e)}
 
-        elif self.exchange == "alpaca":
-            url = f"{base_url}/v2/account"
-            headers = {
-                "APCA-API-KEY-ID": self.api_key,
-                "APCA-API-SECRET-KEY": self.secret_key
-            }
-            try:
-                res = requests.get(url, headers=headers, timeout=8)
-                if res.status_code == 200:
-                    data = res.json()
-                    equity = float(data.get("equity", 0.0))
-                    return True, equity, data
-                return False, 0.0, {"error": res.json(), "status_code": res.status_code}
-            except Exception as e:
-                return False, 0.0, {"error": str(e)}
-
-        return False, 0.0, {"error": "Unsupported exchange adapter"}
+        return False, 0.0, {"error": f"Unsupported exchange: {self.exchange}"}
