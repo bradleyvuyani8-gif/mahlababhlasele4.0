@@ -3,23 +3,63 @@ async function fetchTelemetryStatus() {
         const response = await fetch('/api/telemetry');
         const data = await response.json();
         
-        document.getElementById('engine-state').innerText = data.status || 'IDLE';
-        document.getElementById('telemetry-status').innerText = data.telemetry_status || 'Disconnected';
-        
-        // Display exact balance returned from exchange API (no fake default placeholders)
+        const engineStateElem = document.getElementById('engine-state');
+        const telemetryStatusElem = document.getElementById('telemetry-status');
         const balanceElem = document.getElementById('live-balance');
-        if (data.balance !== undefined) {
-            balanceElem.innerText = `$${parseFloat(data.balance).toFixed(2)}`;
-        } else {
-            balanceElem.innerText = "$0.00";
+
+        if (engineStateElem) engineStateElem.innerText = data.status || 'IDLE';
+        if (telemetryStatusElem) telemetryStatusElem.innerText = data.telemetry_status || 'Disconnected';
+        
+        if (balanceElem) {
+            if (data.balance !== undefined) {
+                balanceElem.innerText = `$${parseFloat(data.balance).toFixed(2)}`;
+            } else {
+                balanceElem.innerText = "$0.00";
+            }
         }
 
         if (data.message) {
             appendLog(`[INFO] ${data.message}`);
         }
     } catch (err) {
-        document.getElementById('telemetry-status').innerText = 'Connection Error';
+        const telemetryStatusElem = document.getElementById('telemetry-status');
+        if (telemetryStatusElem) telemetryStatusElem.innerText = 'Connection Error';
         appendLog(`[ERROR] Telemetry sync failed: ${err.message}`);
+    }
+}
+
+async function saveAndAuthorizeKeys() {
+    const exchangeSelect = document.getElementById('exchange-select');
+    const apiKeyInput = document.getElementById('api-key');
+    const secretKeyInput = document.getElementById('secret-key');
+
+    const exchange = exchangeSelect ? exchangeSelect.value : 'auto';
+    const apiKey = apiKeyInput ? apiKeyInput.value.trim() : '';
+    const secretKey = secretKeyInput ? secretKeyInput.value.trim() : '';
+
+    if (!apiKey || !secretKey) {
+        appendLog("[ERROR] API Key and Secret Key cannot be empty.");
+        return;
+    }
+
+    appendLog("[INFO] Authenticating API credentials...");
+
+    try {
+        const response = await fetch('/api/auth/configure', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ exchange, api_key: apiKey, secret_key: secretKey, testnet: true })
+        });
+        
+        const data = await response.json();
+        if (response.ok) {
+            appendLog(`[SUCCESS] Connected to ${data.exchange}. True Balance: $${parseFloat(data.balance).toFixed(2)}`);
+            fetchTelemetryStatus();
+        } else {
+            appendLog(`[ERROR] Handshake rejected: ${JSON.stringify(data.detail)}`);
+        }
+    } catch (err) {
+        appendLog(`[ERROR] Network failure during auth: ${err.message}`);
     }
 }
 
