@@ -1,9 +1,11 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import os
 import time
+import asyncio
 
 from backend.database import init_db, get_db
 from backend.config import RiskParameters
@@ -11,6 +13,15 @@ from backend.services.exchange_service import ExchangeService
 from backend.services.telemetry_service import TelemetryService
 
 app = FastAPI(title="Mahlabahlasele 4.0", version="4.0.0")
+
+# Added exclusively to fix browser/WebSocket 403 blocks
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 telemetry = TelemetryService()
 
@@ -81,6 +92,20 @@ def update_risk(params: RiskParameters):
         )
         conn.commit()
     return {"status": "success", "risk_parameters": params.model_dump()}
+
+# Added exclusively to clear out the 403 WebSocket rejection noise
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    try:
+        while True:
+            data = await telemetry.get_live_status()
+            await websocket.send_json(data)
+            await asyncio.sleep(5)
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
 
 frontend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend"))
 if os.path.exists(frontend_path):
