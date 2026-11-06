@@ -3,6 +3,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import os
+import time
 
 from backend.database import init_db, get_db
 from backend.config import RiskParameters
@@ -16,22 +17,21 @@ telemetry = TelemetryService()
 @app.on_event("startup")
 def startup_event():
     init_db()
-    # Restore active credentials from DB if present
     with get_db() as conn:
         row = conn.execute("SELECT exchange, api_key, secret_key, testnet FROM api_credentials LIMIT 1").fetchone()
         if row:
-            service = ExchangeService(row["exchange"], row["api_key"], row["secret_key"], bool(row["testnet"]))
+            service = ExchangeService(row["api_key"], row["secret_key"], bool(row["testnet"]), row["exchange"])
             telemetry.set_exchange(service)
 
 class CredentialsPayload(BaseModel):
-    exchange: str
+    exchange: str = "auto"
     api_key: str
     secret_key: str
     testnet: bool = True
 
 @app.post("/api/auth/configure")
 def configure_keys(payload: CredentialsPayload):
-    service = ExchangeService(payload.exchange, payload.api_key, payload.secret_key, payload.testnet)
+    service = ExchangeService(payload.api_key, payload.secret_key, payload.testnet, payload.exchange)
     success, balance, error_data = service.fetch_account_data()
     
     if not success:
@@ -41,16 +41,24 @@ def configure_keys(payload: CredentialsPayload):
         conn.execute("DELETE FROM api_credentials")
         conn.execute(
             "INSERT INTO api_credentials (exchange, api_key, secret_key, testnet) VALUES (?, ?, ?, ?)",
-            (payload.exchange, payload.api_key, payload.secret_key, int(payload.testnet))
+            (service.exchange, payload.api_key, payload.secret_key, int(payload.testnet))
         )
         conn.commit()
 
     telemetry.set_exchange(service)
-    return {"status": "success", "balance": balance, "exchange": payload.exchange.upper()}
+    return {"status": "success", "balance": balance, "exchange": service.exchange.upper()}
 
 @app.get("/api/telemetry")
 async def fetch_telemetry():
     return await telemetry.get_live_status()
+
+@app.get("/api/status")
+def get_status():
+    return {"status": "online", "timestamp": int(time.time())}
+
+@app.get("/api/logs")
+def get_logs():
+    return {"logs": ["Engine operational", "Telemetry stream active"]}
 
 @app.post("/api/risk/update")
 def update_risk(params: RiskParameters):
@@ -61,9 +69,8 @@ def update_risk(params: RiskParameters):
             (params.lot_size, params.leverage, params.max_risk_per_trade)
         )
         conn.commit()
-    return {"status": "success", "risk_parameters": params.dict()}
+    return {"status": "success", "risk_parameters": params.model_dump()}
 
-# Serve Frontend static files
 frontend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend"))
 if os.path.exists(frontend_path):
     app.mount("/static", StaticFiles(directory=frontend_path), name="static")
