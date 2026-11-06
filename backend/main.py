@@ -29,6 +29,8 @@ class CredentialsPayload(BaseModel):
     secret_key: str
     testnet: bool = True
 
+# Dual route mapping to support both original frontend and updated endpoints
+@app.post("/api/auth/configure")
 @app.post("/api/config")
 def configure_keys(payload: CredentialsPayload):
     service = ExchangeService(payload.api_key, payload.secret_key, payload.testnet, payload.exchange)
