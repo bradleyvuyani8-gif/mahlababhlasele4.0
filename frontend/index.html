@@ -3,304 +3,135 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mahlabahlasele 4.0 | Trading Dashboard</title>
-    <style>
-        :root {
-            --bg-color: #0b0f19;
-            --panel-bg: #111827;
-            --border-color: #1f2937;
-            --accent-green: #10b981;
-            --accent-red: #ef4444;
-            --text-main: #f3f4f6;
-            --text-muted: #9ca3af;
-            --neon-blue: #3b82f6;
-        }
-        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-        body { background-color: var(--bg-color); color: var(--text-main); padding: 15px; }
-        
-        .header { display: flex; justify-content: space-between; align-items: center; background: var(--panel-bg); border: 1px solid var(--border-color); padding: 15px 20px; border-radius: 10px; margin-bottom: 15px; }
-        .header h1 { font-size: 1.25rem; color: var(--neon-blue); letter-spacing: 0.5px; font-weight: 700; }
-        .status-badge { background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border: 1px solid var(--accent-green); padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: bold; }
-        
-        .grid { display: grid; grid-template-columns: 1fr; gap: 15px; }
-        @media(min-width: 768px) { .grid { grid-template-columns: 1fr 1fr; } }
-
-        .card { background-color: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 10px; padding: 15px; }
-        .card h2 { font-size: 0.95rem; margin-bottom: 12px; color: var(--text-main); border-bottom: 1px solid var(--border-color); padding-bottom: 8px; letter-spacing: 0.5px; }
-        
-        .form-group { margin-bottom: 10px; }
-        label { display: block; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase; }
-        input, select { width: 100%; padding: 9px 12px; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-main); border-radius: 6px; font-size: 0.85rem; }
-        input:focus, select:focus { outline: none; border-color: var(--neon-blue); }
-        
-        button { width: 100%; padding: 11px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 0.85rem; margin-top: 8px; transition: opacity 0.2s; text-transform: uppercase; letter-spacing: 0.5px; }
-        button:hover { opacity: 0.85; }
-        .btn-primary { background-color: var(--neon-blue); color: #fff; }
-        .btn-success { background-color: var(--accent-green); color: #fff; }
-        .btn-danger { background-color: var(--accent-red); color: #fff; }
-
-        .metric-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 0.85rem; }
-        .metric-value { font-weight: bold; color: var(--neon-blue); }
-        
-        .alert-box { margin-top: 8px; padding: 8px; border-radius: 6px; font-size: 0.75rem; display: none; text-align: center; }
-        .alert-success { background: rgba(16, 185, 129, 0.2); color: var(--accent-green); border: 1px solid var(--accent-green); }
-        .alert-error { background: rgba(239, 68, 68, 0.2); color: var(--accent-red); border: 1px solid var(--accent-red); }
-        
-        .log-container { background: #07090f; border: 1px solid var(--border-color); border-radius: 6px; padding: 10px; height: 160px; overflow-y: auto; font-family: monospace; font-size: 0.75rem; color: #94a3b8; }
-        .log-item { margin-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 3px; }
-        .log-time { color: var(--neon-blue); margin-right: 6px; }
-
-        .full-width { grid-column: 1 / -1; }
-    </style>
+    <title>MAHLABAHLASELE 4.0</title>
+    <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
+    <div class="container">
+        <!-- HEADER -->
+        <header class="header">
+            <h1>MAHLABAHLASELE 4.0</h1>
+            <div id="connection-badge" class="badge disconnected">DISCONNECTED</div>
+        </header>
 
-    <div class="header">
-        <h1>MAHLABAHLASELE 4.0</h1>
-        <div id="systemStatus" class="status-badge">AWAITING KEYS</div>
-    </div>
-
-    <div class="grid">
-        <!-- 1. API CONFIGURATION -->
-        <div class="card">
+        <!-- API CONFIGURATION CARD -->
+        <section class="card">
             <h2>API CONFIGURATION</h2>
             <div class="form-group">
-                <label>Select Exchange</label>
-                <select id="exchangeSelect">
+                <label for="exchange-select">SELECT EXCHANGE</label>
+                <select id="exchange-select" class="input-control">
+                    <option value="auto" selected>Auto-Detect (Any Broker / Alpaca / Binance / Bybit)</option>
+                    <option value="alpaca">Alpaca</option>
                     <option value="binance">Binance</option>
                     <option value="bybit">Bybit</option>
                     <option value="kucoin">KuCoin</option>
                 </select>
             </div>
             <div class="form-group">
-                <label>Exchange API Key</label>
-                <input type="password" id="apiKey" placeholder="Enter API Key">
+                <label for="api-key">EXCHANGE API KEY</label>
+                <input type="text" id="api-key" class="input-control" placeholder="Enter API Key (e.g. PK...)">
             </div>
             <div class="form-group">
-                <label>Secret Key</label>
-                <input type="password" id="secretKey" placeholder="Enter Secret Key">
+                <label for="secret-key">SECRET KEY</label>
+                <input type="password" id="secret-key" class="input-control" placeholder="Enter Secret Key">
             </div>
-            <button class="btn-primary" onclick="saveConfig()">Save & Authorize Keys</button>
-            <div id="configAlert" class="alert-box alert-success">API connection established successfully!</div>
-            <div id="configError" class="alert-box alert-error">Connection failed. Verify API credentials.</div>
-        </div>
+            <button id="btn-save-keys" class="btn btn-primary" onclick="saveAndAuthorizeKeys()">SAVE & AUTHORIZE KEYS</button>
+            <div id="auth-status-msg" class="status-message"></div>
+        </section>
 
-        <!-- 2. BOT STATUS & METRICS -->
-        <div class="card">
+        <!-- BOT CONTROL PANEL -->
+        <section class="card">
             <h2>BOT CONTROL PANEL</h2>
-            <div class="metric-row"><span>Engine State:</span> <span id="botStateText" class="metric-value">DISCONNECTED</span></div>
-            <div class="metric-row"><span>Active Exchange:</span> <span id="activeExchange" class="metric-value">Binance</span></div>
-            <div class="metric-row"><span>Live Account Balance:</span> <span id="accountBalance" class="metric-value">...</span></div>
-            <div class="metric-row"><span>Open Positions:</span> <span id="openPositionsCount" class="metric-value">...</span></div>
-            <div class="metric-row"><span>Active Trades PnL:</span> <span id="activePnl" class="metric-value" style="color: var(--text-muted);">...</span></div>
-        </div>
+            <div class="metrics-grid">
+                <div class="metric-item">
+                    <span class="metric-label">Engine State:</span>
+                    <span id="engine-state" class="metric-value status-red">DISCONNECTED</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">Active Exchange:</span>
+                    <span id="active-exchange" class="metric-value">--</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">Live Account Balance:</span>
+                    <span id="live-balance" class="metric-value">$0.00</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">Open Positions:</span>
+                    <span id="open-positions" class="metric-value">0</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">Active Trades PnL:</span>
+                    <span id="active-pnl" class="metric-value">+$0.00</span>
+                </div>
+            </div>
+        </section>
 
-        <!-- 3. RISK MANAGEMENT & MANUAL CONTROLS -->
-        <div class="card">
+        <!-- RISK MANAGEMENT & MANUAL PARAMETERS -->
+        <section class="card">
             <h2>RISK MANAGEMENT & MANUAL</h2>
             <div class="form-group">
-                <label>Lot Size (BTC)</label>
-                <input type="number" id="lotSize" value="0.15" step="0.01">
+                <label for="lot-size">LOT SIZE (BTC)</label>
+                <input type="number" id="lot-size" class="input-control" step="0.01" value="0.15">
             </div>
             <div class="form-group">
-                <label>Leverage</label>
-                <select id="leverage">
-                    <option value="10x">10x</option>
-                    <option value="20x" selected>20x</option>
-                    <option value="50x">50x</option>
+                <label for="leverage-select">LEVERAGE</label>
+                <select id="leverage-select" class="input-control">
+                    <option value="1">1x</option>
+                    <option value="5">5x</option>
+                    <option value="10">10x</option>
+                    <option value="20" selected>20x</option>
+                    <option value="50">50x</option>
+                    <option value="100">100x</option>
+                    <option value="125">125x</option>
                 </select>
             </div>
             <div class="form-group">
-                <label>Max Risk per Trade (%)</label>
-                <input type="number" id="riskPct" value="2.5" step="0.1">
+                <label for="max-risk">MAX RISK PER TRADE (%)</label>
+                <input type="number" id="max-risk" class="input-control" step="0.1" value="2.5">
             </div>
-            <button class="btn-primary" onclick="updateSettings()">Update Risk Parameters</button>
-            <div id="settingsAlert" class="alert-box alert-success">Risk settings updated!</div>
-        </div>
+            <button id="btn-update-risk" class="btn btn-secondary" onclick="updateRiskParameters()">UPDATE RISK PARAMETERS</button>
+        </section>
 
-        <!-- 4. LIVE MARKET FEED -->
-        <div class="card">
+        <!-- MARKET VIEW -->
+        <section class="card">
             <h2>MARKET VIEW (BTC/USDT)</h2>
-            <div class="metric-row"><span>Pair:</span> <span class="metric-value">BTC/USDT 1H</span></div>
-            <div class="metric-row"><span>Current Price:</span> <span id="livePrice" class="metric-value">Fetching...</span></div>
-            <div class="metric-row"><span>AI Strategy Signal:</span> <span id="aiSignal" class="metric-value">Awaiting Connection</span></div>
-            <div class="metric-row"><span>Telemetry Status:</span> <span id="telemetryStatus" class="metric-value" style="color: var(--accent-red);">Unauthenticated</span></div>
-        </div>
-
-        <!-- 5. LIVE ACTIVITY LOG STREAM (FULL WIDTH) -->
-        <div class="card full-width">
-            <h2>LIVE ENGINE ACTIVITY LOG</h2>
-            <div id="logContainer" class="log-container">
-                <div class="log-item"><span class="log-time">[--:--:--]</span> System locked. Waiting for verified API keys...</div>
+            <div class="metrics-grid">
+                <div class="metric-item">
+                    <span class="metric-label">Pair:</span>
+                    <span id="market-pair" class="metric-value">BTC/USDT 1H</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">Current Price:</span>
+                    <span id="current-price" class="metric-value">$80,619.84</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">AI Strategy Signal:</span>
+                    <span id="strategy-signal" class="metric-value">Awaiting Connection</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">Telemetry Status:</span>
+                    <span id="telemetry-status" class="metric-value status-green">Connected</span>
+                </div>
             </div>
-        </div>
+        </section>
 
-        <!-- 6. AUTOMATED AI TRADING CONTROL (FULL WIDTH) -->
-        <div class="card full-width" style="border: 1px solid var(--border-color);" id="engineCard">
+        <!-- LIVE ENGINE ACTIVITY LOG -->
+        <section class="card">
+            <h2>LIVE ENGINE ACTIVITY LOG</h2>
+            <div id="engine-activity-log" class="log-container">
+                <!-- Dynamic execution log streams here -->
+            </div>
+        </section>
+
+        <!-- AUTOMATED TRADING ACTIVATION -->
+        <section class="card text-center">
             <h2>AI AUTOMATED TRADING ENGINE</h2>
-            <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px;">
-                Bot requires successful API key authentication before automated execution can be unlocked.
-            </p>
-            <button id="toggleBtn" class="btn-danger" onclick="toggleBot()" disabled style="opacity: 0.5; cursor: not-allowed;">API KEYS REQUIRED TO ACTIVATE</button>
-        </div>
+            <p id="engine-warning-text" class="subtext">Bot requires successful API key authentication before automated execution can be unlocked.</p>
+            <button id="btn-toggle-engine" class="btn btn-action" onclick="toggleEngineState()">ACTIVATE AUTOMATED TRADING</button>
+        </section>
     </div>
 
-    <script>
-        async function fetchStatus() {
-            try {
-                let res = await fetch('/api/status');
-                let data = await res.json();
-                
-                document.getElementById('systemStatus').innerText = data.has_keys ? (data.active ? 'ONLINE & ACTIVE' : 'CONNECTED (READY)') : 'AWAITING KEYS';
-                document.getElementById('botStateText').innerText = data.active ? 'ACTIVE' : (data.has_keys ? 'READY (IDLE)' : 'DISCONNECTED');
-                document.getElementById('botStateText').style.color = data.active ? '#10b981' : (data.has_keys ? '#3b82f6' : '#ef4444');
-                document.getElementById('activeExchange').innerText = data.exchange.toUpperCase();
-                
-                // Render live metrics or dots (...) if unauthenticated
-                document.getElementById('accountBalance').innerText = data.balance;
-                document.getElementById('openPositionsCount').innerText = data.positions_count;
-                document.getElementById('activePnl').innerText = data.pnl;
-                document.getElementById('activePnl').style.color = data.pnl === '...' ? '#9ca3af' : '#10b981';
-                document.getElementById('telemetryStatus').innerText = data.has_keys ? 'Connected' : 'Unauthenticated';
-                document.getElementById('telemetryStatus').style.color = data.has_keys ? '#10b981' : '#ef4444';
-
-                let toggleBtn = document.getElementById('toggleBtn');
-                let engineCard = document.getElementById('engineCard');
-
-                if (!data.has_keys) {
-                    toggleBtn.disabled = true;
-                    toggleBtn.style.opacity = "0.5";
-                    toggleBtn.style.cursor = "not-allowed";
-                    toggleBtn.innerText = "API KEYS REQUIRED TO ACTIVATE";
-                    toggleBtn.className = "btn-danger";
-                    engineCard.style.borderColor = "var(--border-color)";
-                } else {
-                    toggleBtn.disabled = false;
-                    toggleBtn.style.opacity = "1";
-                    toggleBtn.style.cursor = "pointer";
-                    engineCard.style.borderColor = "var(--accent-green)";
-                    
-                    if (data.active) {
-                        toggleBtn.innerText = "DEACTIVATE AUTOMATED TRADING";
-                        toggleBtn.className = "btn-danger";
-                    } else {
-                        toggleBtn.innerText = "ACTIVATE AUTOMATED TRADING";
-                        toggleBtn.className = "btn-success";
-                    }
-                }
-
-                if (data.settings) {
-                    document.getElementById('lotSize').value = data.settings.lot_size;
-                    document.getElementById('leverage').value = data.settings.leverage;
-                    document.getElementById('riskPct').value = data.settings.risk_pct;
-                }
-            } catch (e) {
-                document.getElementById('systemStatus').innerText = "DISCONNECTED";
-            }
-        }
-
-        async function fetchLogs() {
-            try {
-                let res = await fetch('/api/logs');
-                let data = await res.json();
-                let container = document.getElementById('logContainer');
-                if (data.logs && data.logs.length > 0) {
-                    container.innerHTML = data.logs.map(log => 
-                        `<div class="log-item"><span class="log-time">[${log.time}]</span> [${log.level}] ${log.message}</div>`
-                    ).join('');
-                }
-            } catch(e) {}
-        }
-
-        async function fetchMarket() {
-            try {
-                let res = await fetch('/api/market/snapshot');
-                let data = await res.json();
-                if(data && data.ticker) {
-                    let price = data.ticker.price || data.ticker.last || 80619.84;
-                    document.getElementById('livePrice').innerText = "$" + parseFloat(price).toLocaleString();
-                }
-            } catch(e) {}
-        }
-
-        async function saveConfig() {
-            let payload = {
-                exchange: document.getElementById('exchangeSelect').value,
-                api_key: document.getElementById('apiKey').value,
-                secret_key: document.getElementById('secretKey').value
-            };
-            try {
-                let res = await fetch('/api/config', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                let data = await res.json();
-                if(res.ok && data.status === 'success') {
-                    let alertBox = document.getElementById('configAlert');
-                    alertBox.style.display = 'block';
-                    document.getElementById('configError').style.display = 'none';
-                    setTimeout(() => alertBox.style.display = 'none', 3000);
-                    fetchStatus();
-                    fetchLogs();
-                } else {
-                    throw new Error(data.detail || "Authorization failed");
-                }
-            } catch(e) {
-                let errBox = document.getElementById('configError');
-                errBox.style.display = 'block';
-                setTimeout(() => errBox.style.display = 'none', 3000);
-            }
-        }
-
-        async function toggleBot() {
-            try {
-                let res = await fetch('/api/bot/toggle', { method: 'POST' });
-                if (!res.ok) {
-                    let errData = await res.json();
-                    alert(errData.detail || "Activation rejected. Verify API connections.");
-                    return;
-                }
-                fetchStatus();
-                fetchLogs();
-            } catch(e) {
-                alert("Error toggling automated trading engine.");
-            }
-        }
-
-        async function updateSettings() {
-            let payload = {
-                lot_size: parseFloat(document.getElementById('lotSize').value),
-                leverage: document.getElementById('leverage').value,
-                risk_pct: parseFloat(document.getElementById('riskPct').value),
-                stop_loss: 1.2,
-                take_profit: 4.0
-            };
-            try {
-                let res = await fetch('/api/settings', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                let data = await res.json();
-                if(data.status === 'success') {
-                    let alertBox = document.getElementById('settingsAlert');
-                    alertBox.style.display = 'block';
-                    setTimeout(() => alertBox.style.display = 'none', 3000);
-                    fetchLogs();
-                }
-            } catch(e) {
-                alert("Error updating risk parameters.");
-            }
-        }
-
-        setInterval(fetchStatus, 3000);
-        setInterval(fetchLogs, 2000);
-        setInterval(fetchMarket, 4000);
-
-        fetchStatus();
-        fetchLogs();
-        fetchMarket();
-    </script>
+    <script src="/static/js/websocket.js"></script>
+    <script src="/static/js/dashboard.js"></script>
 </body>
 </html>
